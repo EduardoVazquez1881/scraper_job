@@ -1,8 +1,8 @@
-# 🚀 Job-Hunter AI Pipeline
+# Job-Hunter AI Pipeline
 
 Este proyecto es un sistema de automatización avanzado (Pipeline) de extremo a extremo diseñado para extraer ofertas de empleo de LinkedIn y utilizar Inteligencia Artificial Generativa (Google Gemini) para analizar, calificar y optimizar un currículum para cada vacante específica de forma automática.
 
-## 📐 Arquitectura y Flujo de Trabajo
+## Arquitectura y Flujo de Trabajo
 
 El flujo de trabajo se divide en 3 fases modulares conectadas de forma secuencial. Todo el proceso puede ser orquestado ejecutando un solo comando:
 
