@@ -1,0 +1,21 @@
+# Archivos con datos sensibles y código privado
+gemini_optimizer.py
+CV*.csv
+CV - Sheet1.csv
+
+# Resultados del scraping y la optimización (Datos generados dinámicamente)
+resultados_scraping.json
+resultados_optimizados.txt
+resultados_convertidos.html
+san_diego_jobs_*.json
+*.json
+
+# Entorno virtual y temporales de Python
+.venv/
+__pycache__/
+*.pyc
+
+# Archivos de prueba
+prueba_cv.html
+gemini_hello.py
+list_models.py
