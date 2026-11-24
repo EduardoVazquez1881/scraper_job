@@ -1,19 +1,29 @@
-# Archivos con datos sensibles y código privado
+# Archivos con datos sensibles y configuración privada
+.env
+!.env.example
+config.json
+!config.example.json
+profile/cv.md
+!profile/cv.example.md
 gemini_optimizer.py
 CV*.csv
 CV - Sheet1.csv
 
-# Resultados del scraping y la optimización (Datos generados dinámicamente)
+# Resultados dinámicos del scraping y optimización
+/data/
 resultados_scraping.json
 resultados_optimizados.txt
 resultados_convertidos.html
 san_diego_jobs_*.json
-*.json
 
-# Entorno virtual y temporales de Python
+# Python
 .venv/
 __pycache__/
 *.pyc
+
+# Frontend (Node / Vite)
+frontend/node_modules/
+frontend/dist/
 
 # Archivos de prueba
 prueba_cv.html

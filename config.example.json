@@ -1,0 +1,19 @@
+{
+  "keywords": [
+    "Desarrollador Backend",
+    "Desarrollador Full Stack",
+    "Programador Python",
+    "Desarrollador React",
+    "Programador Junior"
+  ],
+  "location": "Tijuana, Baja California, Mexico",
+  "time_filter": "1w",
+  "max_per_keyword": 15,
+  "headless": true,
+  "exclude_english": true,
+  "sources": ["linkedin", "computrabajo", "getonboard"],
+  "ai_provider": "gemini",
+  "ai_model": "gemini-2.5-flash",
+  "min_match_score": 75,
+  "temperature": 0.2
+}

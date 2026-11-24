@@ -1,44 +1,43 @@
+import argparse
+import os
 import subprocess
 import sys
-import os
 
-def run_script(script_name):
-    print(f"\n{'='*60}")
-    print(f"🚀 EJECUTANDO FASE: {script_name}")
-    print(f"{'='*60}\n")
-    
-    # Verificamos que el archivo exista antes de intentar correrlo
+
+def run_script(script_name, extra_args=None):
+    print(f"\n{'='*60}", flush=True)
+    print(f"[INFO] EJECUTANDO FASE: {script_name}", flush=True)
+    print(f"{'='*60}\n", flush=True)
+
     if not os.path.exists(script_name):
-        print(f"❌ Error: No se encontró el script '{script_name}'.")
+        print(f"[ERROR] No se encontró el script '{script_name}'.", flush=True)
         sys.exit(1)
 
+    cmd = [sys.executable, "-u", script_name] + (extra_args or [])
     try:
-        # sys.executable garantiza que usemos el Python de tu entorno virtual (.venv)
-        subprocess.run([sys.executable, script_name], check=True)
-        print(f"\n✅ FASE '{script_name}' COMPLETADA CON ÉXITO.")
+        subprocess.run(cmd, check=True)
+        print(f"\n[OK] FASE '{script_name}' COMPLETADA CON ÉXITO.", flush=True)
     except subprocess.CalledProcessError as e:
-        print(f"\n❌ FATAL: El script '{script_name}' falló y detuvo el proceso.")
-        print(f"Código de error: {e.returncode}")
+        print(f"\n[ERROR] El script '{script_name}' falló (código {e.returncode}).", flush=True)
         sys.exit(1)
-    except KeyboardInterrupt:
-        print("\n⚠️  Proceso cancelado manualmente por el usuario.")
-        sys.exit(1)
+
 
 def main():
-    print("🌟 INICIANDO SISTEMA AUTOMATIZADO DE BÚSQUEDA DE EMPLEO 🌟")
-    print("Este proceso correrá el scraper, optimizará con IA y generará el HTML final.\n")
-    
-    # Fase 1: Extracción de datos (Scraping)
-    run_script("linkedin_scraper.py")
-    
-    # Fase 2: Análisis y Optimización ATS (Gemini AI)
-    run_script("gemini_optimizer.py")
-    
-    # Fase 3: Formateo y Ensamblaje Visual (HTML)
-    run_script("txt_to_html.py")
-    
-    print("\n🎉 ¡PIPELINE TOTALMENTE FINALIZADO! 🎉")
-    print("Todo listo. Abre el archivo 'resultados_convertidos.html' para ver tus resultados finales.")
+    parser = argparse.ArgumentParser(description="JobHunter AI Pipeline")
+    parser.add_argument("--skip-scrape", action="store_true", help="Omitir Fase 01 (scraping)")
+    parser.add_argument("--optimize", action="store_true", help="Activar optimización de bullets en Fase 02")
+    args = parser.parse_args()
+
+    print("[INFO] INICIANDO PIPELINE JOBHUNTER AI", flush=True)
+
+    if not args.skip_scrape:
+        run_script("multi_scraper.py")
+
+    opt_args = ["--optimize"] if args.optimize else []
+    run_script("ai_optimizer.py", extra_args=opt_args)
+
+    print("\n[OK] PIPELINE FINALIZADO. Resultados listos en el dashboard.", flush=True)
+
 
 if __name__ == "__main__":
     main()
