@@ -16,6 +16,7 @@ import {
   Zap,
   Loader2,
   AlertCircle,
+  Sparkles,
 } from 'lucide-react';
 
 const PROVIDERS = {
@@ -78,6 +79,8 @@ export default function SearchConfigView({
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [suggestingKeywords, setSuggestingKeywords] = useState(false);
+  const [keywordSuggestInfo, setKeywordSuggestInfo] = useState(null);
 
   const activeProviderKey = config.ai_provider === 'deepseek' ? 'deepseek' : 'gemini';
   const providerInfo = PROVIDERS[activeProviderKey];
@@ -197,6 +200,59 @@ export default function SearchConfigView({
     });
   };
 
+  const handleSuggestKeywordsFromCv = async () => {
+    if (!apiConnected) {
+      setKeywordSuggestInfo({
+        ok: false,
+        message: 'Conecta el backend FastAPI (:8000) para analizar tu CV con IA.',
+      });
+      return;
+    }
+    setSuggestingKeywords(true);
+    setKeywordSuggestInfo(null);
+    try {
+      const res = await fetch('/api/ai/suggest-keywords', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: activeProviderKey,
+          model: config.ai_model,
+          api_key: currentApiKey.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setKeywordSuggestInfo({
+          ok: false,
+          message: data.detail || 'No se pudieron generar keywords desde el CV.',
+        });
+        return;
+      }
+      if (Array.isArray(data.keywords) && data.keywords.length > 0) {
+        setConfig({
+          ...config,
+          keywords: data.keywords,
+        });
+        setKeywordSuggestInfo({
+          ok: true,
+          message: `Nivel detectado: ${data.detected_level} · ${data.detected_area} (${data.keywords.length} keywords adaptadas).`,
+        });
+      } else {
+        setKeywordSuggestInfo({
+          ok: false,
+          message: 'La IA no devolvió keywords válidas.',
+        });
+      }
+    } catch {
+      setKeywordSuggestInfo({
+        ok: false,
+        message: 'Error de red comunicándose con FastAPI (:8000).',
+      });
+    } finally {
+      setSuggestingKeywords(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -262,9 +318,41 @@ export default function SearchConfigView({
 
           {/* Keywords tags */}
           <div>
-            <label className="block text-xs font-medium text-zinc-300 mb-2">
-              Keywords de búsqueda de empleo
-            </label>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <label className="block text-xs font-medium text-zinc-300">
+                Keywords de búsqueda de empleo
+              </label>
+              <button
+                type="button"
+                disabled={suggestingKeywords}
+                onClick={handleSuggestKeywordsFromCv}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/35 hover:bg-emerald-500/25 disabled:opacity-50 transition cursor-pointer"
+                title="Analiza tu CV actual y genera keywords según tu experiencia y nivel"
+              >
+                {suggestingKeywords ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3 h-3" />
+                )}
+                {suggestingKeywords ? 'Analizando CV...' : 'Sugerir con IA (CV)'}
+              </button>
+            </div>
+            {keywordSuggestInfo && (
+              <div
+                className={`mb-2 flex items-center gap-2 text-[11px] px-2.5 py-1.5 rounded-lg border ${
+                  keywordSuggestInfo.ok
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                    : 'bg-red-500/10 border-red-500/30 text-red-300'
+                }`}
+              >
+                {keywordSuggestInfo.ok ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                )}
+                <span>{keywordSuggestInfo.message}</span>
+              </div>
+            )}
             <div className="flex flex-wrap gap-1.5 p-3 rounded-lg bg-[#09090B] border border-zinc-800 min-h-[60px]">
               {config.keywords.map((kw) => (
                 <span

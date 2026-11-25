@@ -244,6 +244,21 @@ def test_notifications(payload: TestAlertPayload):
     )
 
 
+@app.post("/api/ai/suggest-keywords")
+def suggest_keywords(payload: TestConnectionPayload):
+    from ai_optimizer import suggest_keywords_from_cv
+
+    cfg = read_json_safe(CONFIG_PATH, CONFIG_EXAMPLE_PATH)
+    cfg["ai_provider"] = payload.provider or cfg.get("ai_provider", "gemini")
+    cfg["ai_model"] = payload.model or cfg.get("ai_model", "gemini-2.5-flash")
+    try:
+        return suggest_keywords_from_cv(cfg, api_key_override=payload.api_key or "")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error sugiriendo keywords: {exc}")
+
+
 @app.get("/api/config")
 def get_config():
     cfg = read_json_safe(CONFIG_PATH, CONFIG_EXAMPLE_PATH)

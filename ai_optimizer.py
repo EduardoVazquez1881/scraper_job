@@ -341,6 +341,59 @@ Devuelve ÚNICAMENTE este JSON válido:
     return str(result.get("message") or "").strip()
 
 
+def suggest_keywords_from_cv(cfg: dict, api_key_override: str = "") -> dict:
+    """Analiza el CV actual y genera keywords de búsqueda en español adaptadas al perfil y nivel."""
+    provider = (cfg.get("ai_provider") or "gemini").lower()
+    model = cfg.get("ai_model") or ("deepseek-chat" if provider == "deepseek" else "gemini-2.5-flash")
+    api_key = (api_key_override or "").strip() or _get_api_key(provider)
+    if not api_key:
+        raise RuntimeError(
+            f"Falta configurar la API key de {provider.capitalize()} en Búsqueda & Config o en .env."
+        )
+
+    cv_text = _load_cv()
+    if not cv_text.strip():
+        raise RuntimeError("El CV está vacío. Sube o redacta tu CV en Mi Perfil & CV primero.")
+
+    prompt = f"""Analiza el siguiente CV y deduce con precisión:
+1. El nivel profesional real del candidato (ej. "Practicante / Becario", "Junior", "Mid-Level", "Senior", o "Recién egresado").
+2. Su área o especialidad principal.
+3. Entre 5 y 7 keywords cortas de búsqueda de empleo en español (de 1 a 3 palabras cada una) ideales para buscar en LinkedIn, Computrabajo MX e Indeed MX, adaptadas exactamente a su experiencia, stack/profesión y nivel actual.
+
+REGLAS PARA LAS KEYWORDS:
+- Deben ser términos reales que usan las empresas en títulos de vacantes en México (ej. "Desarrollador Backend Junior", "Programador Python", "Psicólogo Clínico", "Terapeuta Físico").
+- NO incluyas keywords en inglés puro si existen equivalentes comunes en español, salvo tecnologías propias (Python, React, FastAPI, SQL).
+- NO sugieras puestos Senior si el perfil es Junior o Practicante, ni viceversa.
+- Devuelve términos concisos (sin ciudad ni palabras como "tiempo completo").
+
+CV DEL CANDIDATO:
+{cv_text[:5000]}
+
+Devuelve ÚNICAMENTE este JSON válido:
+{{
+  "detected_level": "Nivel detectado",
+  "detected_area": "Área principal",
+  "keywords": ["Keyword 1", "Keyword 2", "Keyword 3", "Keyword 4", "Keyword 5"]
+}}
+"""
+    result = _call_llm_json(provider, model, api_key, prompt, temperature=0.25)
+    raw_kws = result.get("keywords") or []
+    cleaned_kws = []
+    seen = set()
+    for kw in raw_kws:
+        s = str(kw).strip()
+        if s and s.lower() not in seen:
+            seen.add(s.lower())
+            cleaned_kws.append(s)
+
+    return {
+        "ok": True,
+        "detected_level": str(result.get("detected_level") or "No especificado").strip(),
+        "detected_area": str(result.get("detected_area") or "General").strip(),
+        "keywords": cleaned_kws[:8],
+    }
+
+
 def run_phase2(optimize_bullets: bool = False, force_reanalyze: bool = False):
     cfg = load_config()
     provider = (cfg.get("ai_provider") or "gemini").lower()
