@@ -39,6 +39,7 @@ export default function Sidebar({
   onSelectTab,
   apiConnected,
   appliedCount = 0,
+  pipelineRunning = false,
 }) {
   return (
     <aside className="w-[240px] shrink-0 bg-[#0B0B0E] border-r border-zinc-800/80 flex flex-col justify-between h-screen sticky top-0 select-none">
@@ -106,6 +107,12 @@ export default function Sidebar({
                     {item.id === 'postulaciones' && appliedCount > 0 && (
                       <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
                         {appliedCount}
+                      </span>
+                    )}
+                    {item.id === 'pipeline' && pipelineRunning && (
+                      <span className="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Activo
                       </span>
                     )}
                   </button>

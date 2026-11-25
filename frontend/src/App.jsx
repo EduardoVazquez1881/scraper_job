@@ -50,6 +50,7 @@ export default function App() {
   const [savedNotice, setSavedNotice] = useState(false);
   const [pipelineStatus, setPipelineStatus] = useState('idle');
   const [activePhase, setActivePhase] = useState('ready');
+  const [pipelineStartedAt, setPipelineStartedAt] = useState(null);
   const [includePhase1, setIncludePhase1] = useState(true);
   const [optimizeBullets, setOptimizeBullets] = useState(false);
   const [optimizingJobId, setOptimizingJobId] = useState(null);
@@ -85,6 +86,18 @@ export default function App() {
             .then((r) => (r.ok ? r.json() : null))
             .then((list) => {
               if (Array.isArray(list) && list.length > 0) setJobs(list);
+            })
+            .catch(() => {});
+          fetch('/api/pipeline/status')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((st) => {
+              if (!st) return;
+              if (st.status) setPipelineStatus(st.status);
+              if (st.phase) setActivePhase(st.phase);
+              if (st.started_at) setPipelineStartedAt(st.started_at);
+              if (Array.isArray(st.logs) && st.logs.length > 0) {
+                setLogs(st.logs);
+              }
             })
             .catch(() => {});
         }
@@ -223,34 +236,48 @@ export default function App() {
     });
   };
 
-  // Polling en vivo de logs del backend FastAPI cuando el pipeline corre
+  // Sincronización continua del estado del pipeline (rápida cuando corre, ligera en reposo)
   useEffect(() => {
-    if (!apiConnected || pipelineStatus !== 'running') return;
-    const timer = setInterval(async () => {
+    if (!apiConnected) return;
+    let cancelled = false;
+
+    const syncPipeline = async () => {
       try {
         const res = await fetch('/api/pipeline/status');
-        if (!res.ok) return;
+        if (!res.ok || cancelled) return;
         const data = await res.json();
         if (Array.isArray(data.logs) && data.logs.length > 0) {
           setLogs(data.logs);
         }
-        if (data.status !== 'running') {
-          setPipelineStatus(data.status || 'idle');
-          setActivePhase('ready');
-          const jobsRes = await fetch('/api/jobs');
-          if (jobsRes.ok) {
-            const list = await jobsRes.json();
-            if (Array.isArray(list) && list.length > 0) {
-              setJobs(list);
-            }
-          }
+        if (data.started_at) {
+          setPipelineStartedAt(data.started_at);
         }
+        const nextStatus = data.status || 'idle';
+        setPipelineStatus((prev) => {
+          if (prev === 'running' && nextStatus !== 'running') {
+            fetch('/api/jobs')
+              .then((r) => (r.ok ? r.json() : null))
+              .then((list) => {
+                if (Array.isArray(list) && list.length > 0) setJobs(list);
+              })
+              .catch(() => {});
+          }
+          return nextStatus;
+        });
+        setActivePhase(nextStatus === 'running' ? data.phase || 'all' : 'ready');
       } catch {
-        // Ignorar errores transitorios de polling
+        // Ignorar errores transitorios de red
       }
-    }, 1500);
-    return () => clearInterval(timer);
-  }, [apiConnected, pipelineStatus]);
+    };
+
+    syncPipeline();
+    const intervalMs = pipelineStatus === 'running' ? 1500 : 6000;
+    const timer = setInterval(syncPipeline, intervalMs);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [apiConnected, pipelineStatus, activeTab]);
 
   const handleTriggerPhase = async (phase) => {
     setActiveTab('pipeline');
@@ -278,6 +305,18 @@ export default function App() {
           method: 'POST',
         });
         if (!res.ok) {
+          if (res.status === 409) {
+            // Ya estaba corriendo: engancharse al stream de logs activo en lugar de pasar a idle
+            const stRes = await fetch('/api/pipeline/status').catch(() => null);
+            if (stRes?.ok) {
+              const st = await stRes.json();
+              setPipelineStatus(st.status || 'running');
+              setActivePhase(st.phase || 'all');
+              if (st.started_at) setPipelineStartedAt(st.started_at);
+              if (Array.isArray(st.logs) && st.logs.length > 0) setLogs(st.logs);
+            }
+            return;
+          }
           const err = await res.json().catch(() => ({}));
           setLogs((prev) => [
             ...prev,
@@ -381,6 +420,7 @@ export default function App() {
         onSelectTab={setActiveTab}
         apiConnected={apiConnected}
         appliedCount={appliedCount}
+        pipelineRunning={pipelineStatus === 'running'}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -485,6 +525,7 @@ export default function App() {
             <PipelineView
               pipelineStatus={pipelineStatus}
               activePhase={activePhase}
+              startedAt={pipelineStartedAt}
               logs={logs}
               includePhase1={includePhase1}
               setIncludePhase1={setIncludePhase1}
