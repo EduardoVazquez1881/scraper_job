@@ -6,15 +6,32 @@ import {
   Sparkles,
   Bell,
   Send,
+  Search,
 } from 'lucide-react';
 
-const NAV_ITEMS = [
-  { id: 'vacantes', label: 'Vacantes & Match', icon: Briefcase },
-  { id: 'postulaciones', label: 'Postulaciones', icon: Send },
-  { id: 'pipeline', label: 'Ejecutar Pipeline', icon: Play },
-  { id: 'automatizaciones', label: 'Automatizaciones', icon: Bell },
-  { id: 'perfil', label: 'Mi Perfil & CV', icon: FileText },
-  { id: 'config', label: 'Búsqueda & Config', icon: SlidersHorizontal },
+const NAV_SECTIONS = [
+  {
+    title: 'Empleos',
+    items: [
+      { id: 'vacantes', label: 'Vacantes & Match', icon: Briefcase },
+      { id: 'postulaciones', label: 'Postulaciones', icon: Send },
+    ],
+  },
+  {
+    title: 'Motor de Búsqueda',
+    items: [
+      { id: 'busqueda', label: 'Búsqueda', icon: Search },
+      { id: 'pipeline', label: 'Ejecutar Pipeline', icon: Play },
+      { id: 'automatizaciones', label: 'Automatizaciones', icon: Bell },
+    ],
+  },
+  {
+    title: 'Perfil y Sistema',
+    items: [
+      { id: 'perfil', label: 'Mi Perfil & CV', icon: FileText },
+      { id: 'config', label: 'Configuración IA', icon: SlidersHorizontal },
+    ],
+  },
 ];
 
 export default function Sidebar({
@@ -25,7 +42,7 @@ export default function Sidebar({
 }) {
   return (
     <aside className="w-[240px] shrink-0 bg-[#0B0B0E] border-r border-zinc-800/80 flex flex-col justify-between h-screen sticky top-0 select-none">
-      <div>
+      <div className="overflow-y-auto">
         {/* Brand */}
         <div className="px-4 py-4 flex items-center gap-2.5 border-b border-zinc-800/70">
           <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
@@ -58,37 +75,44 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* Navigation */}
-        <nav className="px-2.5 py-2 space-y-1">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => onSelectTab(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-[13px] font-medium transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-zinc-800/90 text-zinc-100 border border-zinc-700/70 shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/70 border border-transparent'
-                }`}
-              >
-                <span className="flex items-center gap-2.5">
-                  <Icon
-                    className={`w-4 h-4 ${
-                      isActive ? 'text-emerald-400' : 'text-zinc-500'
+        {/* Navigation grouped by sections */}
+        <nav className="px-2.5 py-2 space-y-4">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.title} className="space-y-1">
+              <p className="px-3 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                {section.title}
+              </p>
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onSelectTab(item.id)}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-[13px] font-medium transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-zinc-800/90 text-zinc-100 border border-zinc-700/70 shadow-sm'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/70 border border-transparent'
                     }`}
-                  />
-                  <span>{item.label}</span>
-                </span>
-                {item.id === 'postulaciones' && appliedCount > 0 && (
-                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
-                    {appliedCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <Icon
+                        className={`w-4 h-4 ${
+                          isActive ? 'text-emerald-400' : 'text-zinc-500'
+                        }`}
+                      />
+                      <span>{item.label}</span>
+                    </span>
+                    {item.id === 'postulaciones' && appliedCount > 0 && (
+                      <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+                        {appliedCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
       </div>
     </aside>

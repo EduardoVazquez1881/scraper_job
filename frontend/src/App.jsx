@@ -6,6 +6,7 @@ import SearchConfigView from './components/SearchConfigView';
 import PipelineView from './components/PipelineView';
 import ProfileCvView from './components/ProfileCvView';
 import AutomationsView from './components/AutomationsView';
+import AiConfigView from './components/AiConfigView';
 import {
   INITIAL_CONFIG,
   INITIAL_CV,
@@ -393,10 +394,12 @@ export default function App() {
                 ? 'vacantes-match'
                 : activeTab === 'postulaciones'
                 ? 'mis-postulaciones'
+                : activeTab === 'busqueda'
+                ? 'busqueda-trabajos'
                 : activeTab === 'automatizaciones'
                 ? 'automatizaciones-alertas'
                 : activeTab === 'config'
-                ? 'busqueda-config'
+                ? 'configuracion-ia'
                 : activeTab === 'pipeline'
                 ? 'pipeline-runner'
                 : 'perfil-cv'}
@@ -430,7 +433,7 @@ export default function App() {
               onToggleApplied={handleToggleApplied}
               onUpdateJobCrm={handleUpdateJobCrm}
               onRunPipeline={() => handleTriggerPhase('all')}
-              onOpenSearchConfig={() => setActiveTab('config')}
+              onOpenSearchConfig={() => setActiveTab('busqueda')}
               onGoToVacantes={() => setActiveTab('vacantes')}
               onGoToPostulaciones={() => setActiveTab('postulaciones')}
               onOptimizeJob={handleOptimizeJob}
@@ -454,14 +457,24 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'config' && (
+          {activeTab === 'busqueda' && (
             <SearchConfigView
+              config={config}
+              setConfig={setConfig}
+              onSaveConfig={handleSaveConfig}
+              onRunSearch={() => handleTriggerPhase('scrape')}
+              savedNotice={savedNotice}
+              apiConnected={apiConnected}
+            />
+          )}
+
+          {activeTab === 'config' && (
+            <AiConfigView
               config={config}
               setConfig={setConfig}
               prompt={prompt}
               setPrompt={setPrompt}
               onSaveConfig={handleSaveConfig}
-              onRunSearch={() => handleTriggerPhase('scrape')}
               savedNotice={savedNotice}
               apiConnected={apiConnected}
             />
