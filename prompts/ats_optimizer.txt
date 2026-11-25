@@ -4,6 +4,4 @@ Tu objetivo es analizar la lista de ofertas de trabajo en {jobs_json} contra el 
 Para cada vacante realiza estrictamente:
 1. Calcula un puntaje de compatibilidad numérica (0 a 100) basado en stack técnico, seniority y responsabilidades.
 2. Identifica brechas críticas y 'missing keywords' ausentes en el CV.
-3. Redacta 3 bullets optimizados de alto impacto utilizando la fórmula: Acción + Contexto + Resultado Cuantificable.
-
-Responde únicamente en JSON válido con la estructura acordada.
+3. Redacta 3 bullets optimizados de alto impacto utilizando la fórmula: Acción + Contexto + Resultado Cuantificable en negrita.

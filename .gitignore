@@ -1,5 +1,7 @@
 # Archivos con datos sensibles y configuración privada
 .env
+.vault.key
+*.key
 !.env.example
 config.json
 !config.example.json

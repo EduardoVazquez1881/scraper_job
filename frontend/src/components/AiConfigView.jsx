@@ -11,6 +11,7 @@ import {
   Zap,
   Loader2,
   AlertCircle,
+  ShieldCheck,
 } from 'lucide-react';
 
 const PROVIDERS = {
@@ -68,6 +69,8 @@ export default function AiConfigView({
   const activeProviderKey = config.ai_provider === 'deepseek' ? 'deepseek' : 'gemini';
   const providerInfo = PROVIDERS[activeProviderKey];
   const currentApiKey = config.api_keys?.[activeProviderKey] ?? '';
+  const isKeySavedInEnv = Boolean(config.keys_configured?.[activeProviderKey]);
+  const maskedSavedKey = config.keys_masked?.[activeProviderKey] || '';
 
   const handleSelectProvider = (providerId) => {
     const defaultModel = PROVIDERS[providerId].models[0].id;
@@ -115,6 +118,20 @@ export default function AiConfigView({
           }),
         });
         const data = await res.json();
+        if (data.ok && data.saved_encrypted) {
+          setConfig({
+            ...config,
+            api_keys: { ...(config.api_keys || {}), [activeProviderKey]: '' },
+            keys_configured: {
+              ...(config.keys_configured || {}),
+              [activeProviderKey]: true,
+            },
+            keys_masked: {
+              ...(config.keys_masked || {}),
+              [activeProviderKey]: data.masked_key || maskedSavedKey,
+            },
+          });
+        }
         setTestResult({
           ok: Boolean(data.ok),
           message: data.message || (data.ok ? 'Conexión válida.' : 'Error de validación.'),
@@ -280,9 +297,21 @@ export default function AiConfigView({
 
           {/* API Key + Test Connection */}
           <div>
-            <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-              Credencial local ({providerInfo.envName})
-            </label>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+              <label className="block text-xs font-medium text-zinc-300">
+                Credencial local ({providerInfo.envName})
+              </label>
+              {isKeySavedInEnv ? (
+                <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
+                  <ShieldCheck className="w-3 h-3" />
+                  Encriptada en .env {maskedSavedKey ? `· ${maskedSavedKey}` : ''}
+                </span>
+              ) : (
+                <span className="font-mono text-[10px] text-amber-400">
+                  Sin configurar en .env
+                </span>
+              )}
+            </div>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <KeyRound className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -290,7 +319,11 @@ export default function AiConfigView({
                   type={showKey ? 'text' : 'password'}
                   value={currentApiKey}
                   onChange={(e) => handleApiKeyChange(e.target.value)}
-                  placeholder={providerInfo.placeholder}
+                  placeholder={
+                    isKeySavedInEnv
+                      ? 'Clave encriptada activa en .env (escribe solo para cambiarla)'
+                      : providerInfo.placeholder
+                  }
                   className="w-full bg-[#09090B] border border-zinc-800 rounded-lg pl-9 pr-9 py-2 text-xs font-mono text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50"
                 />
                 <button

@@ -68,7 +68,7 @@ flowchart LR
 
 | Capa | Tecnologías |
 | :--- | :--- |
-| **Backend & Persistencia** | Python 3.11+, FastAPI, Uvicorn, SQLite3, Pydantic, `pypdf`, `python-docx`, `fpdf2`, `python-dotenv` |
+| **Backend & Persistencia** | Python 3.11+, FastAPI, Uvicorn, SQLite3, Pydantic, `cryptography` (Fernet), `pypdf`, `python-docx`, `fpdf2`, `python-dotenv` |
 | **Frontend** | React 19, Vite 7, Tailwind CSS v4, Lucide React |
 | **Automatización & IA** | Playwright (Chromium), Google Gemini API, DeepSeek API |
 | **Contenedores** | Docker, Docker Compose, Nginx |
@@ -148,16 +148,14 @@ npm run dev
 
 ## Privacidad y Seguridad
 
-El archivo [`.gitignore`](./.gitignore) excluye automáticamente toda información sensible y artefactos generados en ejecución:
-- `.env` (credenciales `GEMINI_API_KEY` y `DEEPSEEK_API_KEY`)
+El archivo [`.gitignore`](./.gitignore) excluye automáticamente toda información sensible, llaves de cifrado y artefactos generados en ejecución:
+- `.env` y `.vault.key` (las API keys y webhooks se almacenan encriptados localmente con **Fernet AES-128 + HMAC-SHA256** mediante `backend/crypto_vault.py`)
 - `config.json` (preferencias locales)
 - `profile/cv.md` (currículum personal)
-- `data/` y archivos de resultados (`resultados_scraping.json`, `resultados_optimizados.txt`, `resultados_convertidos.html`)
+- `data/`, `*.db` y archivos de resultados (`resultados_scraping.json`, `resultados_optimizados.txt`, `resultados_convertidos.html`)
 
 ---
 
-## Autor
+## Licencia
 
-**Eduardo Vázquez** — Desarrollador de Software | Backend & Full Stack  
-- Portafolio: [eduardovazquez.online](https://eduardovazquez.online)
-- GitHub: [@EduardoVazquez1881](https://github.com/EduardoVazquez1881)
+Uso local / educativo — Código abierto para búsqueda de empleo y optimización ATS.

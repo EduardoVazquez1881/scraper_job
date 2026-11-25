@@ -19,6 +19,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from backend.crypto_vault import (
+    get_decrypted_env,
+    mask_secret,
+    migrate_plaintext_env,
+    save_encrypted_env,
+)
 from backend.db import (
     get_all_jobs,
     get_job_by_id,
@@ -100,6 +106,7 @@ def _scheduler_loop():
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    migrate_plaintext_env()
     init_db()
     Thread(target=_scheduler_loop, daemon=True).start()
     yield
@@ -161,15 +168,14 @@ class JobStatusPayload(BaseModel):
 
 @app.get("/api/health")
 def health():
-    load_dotenv(ROOT_DIR / ".env", override=True)
     return {
         "status": "ok",
         "version": "2.5.0",
-        "gemini_configured": bool(os.getenv("GEMINI_API_KEY")),
-        "deepseek_configured": bool(os.getenv("DEEPSEEK_API_KEY")),
-        "discord_configured": bool(os.getenv("DISCORD_WEBHOOK_URL")),
+        "gemini_configured": bool(get_decrypted_env("GEMINI_API_KEY")),
+        "deepseek_configured": bool(get_decrypted_env("DEEPSEEK_API_KEY")),
+        "discord_configured": bool(get_decrypted_env("DISCORD_WEBHOOK_URL")),
         "telegram_configured": bool(
-            os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID")
+            get_decrypted_env("TELEGRAM_BOT_TOKEN") and get_decrypted_env("TELEGRAM_CHAT_ID")
         ),
         "pipeline_status": pipeline_state["status"],
     }
@@ -178,11 +184,9 @@ def health():
 @app.post("/api/ai/test")
 def test_ai_connection(payload: TestConnectionPayload):
     provider = payload.provider.lower().strip()
-    key = (payload.api_key or "").strip()
-    if not key:
-        load_dotenv(ROOT_DIR / ".env", override=True)
-        env_var = "GEMINI_API_KEY" if provider == "gemini" else "DEEPSEEK_API_KEY"
-        key = (os.getenv(env_var) or "").strip()
+    typed_key = (payload.api_key or "").strip()
+    env_var = "GEMINI_API_KEY" if provider == "gemini" else "DEEPSEEK_API_KEY"
+    key = typed_key or get_decrypted_env(env_var)
 
     if not key:
         return {
@@ -209,12 +213,20 @@ def test_ai_connection(payload: TestConnectionPayload):
         with urllib.request.urlopen(req, timeout=8) as resp:
             latency_ms = int((time.perf_counter() - start) * 1000)
             if resp.status == 200:
+                if typed_key:
+                    save_encrypted_env(env_var, typed_key)
                 return {
                     "ok": True,
                     "provider": provider,
                     "model": payload.model,
                     "latency_ms": latency_ms,
-                    "message": f"Conexión exitosa con {provider.capitalize()} ({latency_ms} ms).",
+                    "saved_encrypted": bool(typed_key),
+                    "masked_key": mask_secret(key),
+                    "message": (
+                        f"Conexión exitosa ({latency_ms} ms). Clave encriptada y guardada en .env."
+                        if typed_key
+                        else f"Conexión exitosa con clave encriptada en .env ({latency_ms} ms)."
+                    ),
                 }
             return {
                 "ok": False,
@@ -262,31 +274,23 @@ def suggest_keywords(payload: TestConnectionPayload):
 @app.get("/api/config")
 def get_config():
     cfg = read_json_safe(CONFIG_PATH, CONFIG_EXAMPLE_PATH)
-    load_dotenv(ROOT_DIR / ".env", override=True)
+    gem_key = get_decrypted_env("GEMINI_API_KEY")
+    ds_key = get_decrypted_env("DEEPSEEK_API_KEY")
+    cfg["keys_configured"] = {
+        "gemini": bool(gem_key),
+        "deepseek": bool(ds_key),
+    }
+    cfg["keys_masked"] = {
+        "gemini": mask_secret(gem_key),
+        "deepseek": mask_secret(ds_key),
+    }
     cfg["alerts_configured"] = {
-        "discord": bool(os.getenv("DISCORD_WEBHOOK_URL")),
+        "discord": bool(get_decrypted_env("DISCORD_WEBHOOK_URL")),
         "telegram": bool(
-            os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID")
+            get_decrypted_env("TELEGRAM_BOT_TOKEN") and get_decrypted_env("TELEGRAM_CHAT_ID")
         ),
     }
     return cfg
-
-
-def _save_env_key(env_var: str, value: str):
-    env_path = ROOT_DIR / ".env"
-    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
-    updated = False
-    new_lines = []
-    for line in lines:
-        if line.strip().startswith(f"{env_var}="):
-            new_lines.append(f"{env_var}={value}")
-            updated = True
-        else:
-            new_lines.append(line)
-    if not updated:
-        new_lines.append(f"{env_var}={value}")
-    env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-    os.environ[env_var] = value
 
 
 @app.put("/api/config")
@@ -297,23 +301,23 @@ def update_config(payload: ConfigModel):
 
     if isinstance(api_keys, dict):
         if (api_keys.get("gemini") or "").strip():
-            _save_env_key("GEMINI_API_KEY", api_keys["gemini"].strip())
+            save_encrypted_env("GEMINI_API_KEY", api_keys["gemini"].strip())
         if (api_keys.get("deepseek") or "").strip():
-            _save_env_key("DEEPSEEK_API_KEY", api_keys["deepseek"].strip())
+            save_encrypted_env("DEEPSEEK_API_KEY", api_keys["deepseek"].strip())
 
     if isinstance(alert_secrets, dict):
         if "discord_webhook" in alert_secrets and alert_secrets["discord_webhook"] is not None:
             val = str(alert_secrets["discord_webhook"]).strip()
             if val:
-                _save_env_key("DISCORD_WEBHOOK_URL", val)
+                save_encrypted_env("DISCORD_WEBHOOK_URL", val)
         if "telegram_token" in alert_secrets and alert_secrets["telegram_token"] is not None:
             val = str(alert_secrets["telegram_token"]).strip()
             if val:
-                _save_env_key("TELEGRAM_BOT_TOKEN", val)
+                save_encrypted_env("TELEGRAM_BOT_TOKEN", val)
         if "telegram_chat_id" in alert_secrets and alert_secrets["telegram_chat_id"] is not None:
             val = str(alert_secrets["telegram_chat_id"]).strip()
             if val:
-                _save_env_key("TELEGRAM_CHAT_ID", val)
+                save_encrypted_env("TELEGRAM_CHAT_ID", val)
 
     CONFIG_PATH.write_text(
         json.dumps(data, indent=2, ensure_ascii=False),

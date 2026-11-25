@@ -11,11 +11,19 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
 def _get_alert_creds():
-    load_dotenv(ROOT_DIR / ".env", override=True)
-    discord_url = (os.getenv("DISCORD_WEBHOOK_URL") or "").strip()
-    tg_token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
-    tg_chat_id = (os.getenv("TELEGRAM_CHAT_ID") or "").strip()
-    return discord_url, tg_token, tg_chat_id
+    try:
+        from backend.crypto_vault import get_decrypted_env
+
+        discord_url = get_decrypted_env("DISCORD_WEBHOOK_URL")
+        tg_token = get_decrypted_env("TELEGRAM_BOT_TOKEN")
+        tg_chat_id = get_decrypted_env("TELEGRAM_CHAT_ID")
+        return discord_url, tg_token, tg_chat_id
+    except Exception:
+        load_dotenv(ROOT_DIR / ".env", override=True)
+        discord_url = (os.getenv("DISCORD_WEBHOOK_URL") or "").strip()
+        tg_token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+        tg_chat_id = (os.getenv("TELEGRAM_CHAT_ID") or "").strip()
+        return discord_url, tg_token, tg_chat_id
 
 
 def send_discord_message(webhook_url: str, content: str) -> tuple[bool, str]:

@@ -29,9 +29,14 @@ def _load_cv() -> str:
 
 
 def _get_api_key(provider: str) -> str:
-    load_dotenv(ROOT_DIR / ".env", override=True)
     env_var = "DEEPSEEK_API_KEY" if provider == "deepseek" else "GEMINI_API_KEY"
-    return (os.getenv(env_var) or "").strip()
+    try:
+        from backend.crypto_vault import get_decrypted_env
+
+        return get_decrypted_env(env_var)
+    except Exception:
+        load_dotenv(ROOT_DIR / ".env", override=True)
+        return (os.getenv(env_var) or "").strip()
 
 
 def _extract_json(raw_text: str):
@@ -319,7 +324,7 @@ def generate_outreach_for_job(job: dict, cfg: dict) -> str:
 REGLAS:
 - Menciona el puesto exacto y la empresa.
 - Conecta con 1 o 2 experiencias/proyectos reales del CV que mejor encajen con la vacante.
-- Cierra incluyendo de forma natural el portafolio: eduardovazquez.online (si aparece en el CV) y disposición para conversar.
+- Cierra incluyendo de forma natural el enlace a su portafolio o GitHub (únicamente si aparece en el CV) y disposición para conversar.
 - NO inventes años de experiencia ni tecnologías que no estén en el CV.
 
 CV DEL CANDIDATO:

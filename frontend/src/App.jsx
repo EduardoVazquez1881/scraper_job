@@ -130,6 +130,7 @@ export default function App() {
           setConfig((prev) => ({
             ...prev,
             ...freshCfg,
+            api_keys: { gemini: '', deepseek: '' },
             alert_secrets: { discord_webhook: '', telegram_token: '', telegram_chat_id: '' },
           }));
         }
