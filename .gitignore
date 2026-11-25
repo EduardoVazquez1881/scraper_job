@@ -11,6 +11,9 @@ CV - Sheet1.csv
 
 # Resultados dinámicos del scraping y optimización
 /data/
+*.db
+*.sqlite
+*.sqlite3
 resultados_scraping.json
 resultados_optimizados.txt
 resultados_convertidos.html

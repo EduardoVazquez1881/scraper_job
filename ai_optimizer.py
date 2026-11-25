@@ -6,6 +6,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import List
 
 from dotenv import load_dotenv
 
@@ -57,7 +58,7 @@ def _call_llm_json(provider: str, model: str, api_key: str, prompt: str, tempera
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=45) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         text = data["candidates"][0]["content"]["parts"][0]["text"]
         return _extract_json(text)
@@ -85,7 +86,7 @@ def _call_llm_json(provider: str, model: str, api_key: str, prompt: str, tempera
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=75) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         text = data["choices"][0]["message"]["content"]
         return _extract_json(text)
@@ -100,6 +101,45 @@ def _company_initials(company: str) -> str:
     if len(words) == 1:
         return words[0][:2].upper()
     return (words[0][0] + words[1][0]).upper()
+
+
+def _format_analyzed_item(job: dict, result: dict, provider: str, model: str, optimize_bullets: bool) -> dict:
+    score = max(0, min(100, int(result.get("matchScore", 0))))
+    bullets = result.get("bullets") if optimize_bullets else (job.get("bullets") or [])
+    if not isinstance(bullets, list):
+        bullets = []
+    # Limpiar placeholder de Fase 01 si no fue optimizado
+    if len(bullets) == 1 and "lista para análisis semántico" in bullets[0]:
+        bullets = []
+
+    return {
+        "id": str(job.get("id") or "job-1"),
+        "url_hash": job.get("url_hash"),
+        "initials": _company_initials(job.get("company") or ""),
+        "title": job.get("title") or "Sin título",
+        "company": job.get("company") or "Empresa",
+        "location": job.get("location") or "No especificada",
+        "salary": job.get("salary") or "",
+        "matchScore": score,
+        "keyword": job.get("keyword") or "General",
+        "source": job.get("source") or "LinkedIn",
+        "postedAt": job.get("postedAt") or job.get("scraped_at") or "Reciente",
+        "scraped_at": job.get("scraped_at") or "",
+        "link": job.get("link") or "https://www.linkedin.com/jobs/",
+        "applied": bool(job.get("applied", False)),
+        "status": job.get("status") or ("applied" if job.get("applied") else "pending"),
+        "notes": job.get("notes") or "",
+        "description": job.get("description") or "",
+        "analyzed": True,
+        "tags": (result.get("tags") or [job.get("keyword") or "Tech"])[:6],
+        "summary": result.get("summary") or "Análisis completado.",
+        "gaps": (result.get("gaps") or [])[:5],
+        "gapSuggestion": result.get("gapSuggestion") or "",
+        "bullets": bullets,
+        "optimized": bool(len(bullets) > 0),
+        "analyzedBy": f"{provider.capitalize()} ({model})",
+        "outreachMessage": job.get("outreachMessage") or "",
+    }
 
 
 def analyze_job(job: dict, cv_text: str, cfg: dict, optimize_bullets: bool = False) -> dict:
@@ -147,33 +187,82 @@ DEVUELVE EXACTAMENTE ESTE JSON:
 }}
 """
     result = _call_llm_json(provider, model, api_key, prompt, temperature=temperature)
-    score = max(0, min(100, int(result.get("matchScore", 0))))
-    bullets = result.get("bullets") if optimize_bullets else []
-    if not isinstance(bullets, list):
-        bullets = []
+    return _format_analyzed_item(job, result, provider, model, optimize_bullets)
 
-    return {
-        "id": str(job.get("id") or "job-1"),
-        "initials": _company_initials(job.get("company") or ""),
-        "title": job.get("title") or "Sin título",
-        "company": job.get("company") or "Empresa",
-        "location": job.get("location") or "No especificada",
-        "salary": job.get("salary") or "",
-        "matchScore": score,
-        "keyword": job.get("keyword") or "General",
-        "source": job.get("source") or "LinkedIn",
-        "postedAt": job.get("postedAt") or job.get("scraped_at") or "Reciente",
-        "link": job.get("link") or "https://www.linkedin.com/jobs/",
-        "applied": bool(job.get("applied", False)),
-        "description": job.get("description") or "",
-        "tags": (result.get("tags") or [job.get("keyword") or "Tech"])[:6],
-        "summary": result.get("summary") or "Análisis completado.",
-        "gaps": (result.get("gaps") or [])[:5],
-        "gapSuggestion": result.get("gapSuggestion") or "",
-        "bullets": bullets,
-        "optimized": bool(optimize_bullets and len(bullets) > 0),
-        "analyzedBy": f"{provider.capitalize()} ({model})",
-    }
+
+def analyze_jobs_batch(
+    batch: List[dict], cv_text: str, cfg: dict, optimize_bullets: bool = False
+) -> List[dict]:
+    """Analiza un lote de hasta 4 vacantes en una sola llamada para ahorrar ~70% de tokens del CV."""
+    if len(batch) == 1:
+        return [analyze_job(batch[0], cv_text, cfg, optimize_bullets=optimize_bullets)]
+
+    provider = (cfg.get("ai_provider") or "gemini").lower()
+    model = cfg.get("ai_model") or ("deepseek-chat" if provider == "deepseek" else "gemini-2.5-flash")
+    temperature = float(cfg.get("temperature", 0.2))
+    api_key = _get_api_key(provider)
+    if not api_key:
+        raise RuntimeError(
+            f"Falta configurar la API key de {provider.capitalize()} en Búsqueda & Config o en .env."
+        )
+
+    jobs_payload = [
+        {
+            "job_index": idx,
+            "title": j.get("title", ""),
+            "company": j.get("company", ""),
+            "location": j.get("location", ""),
+            "source": j.get("source", ""),
+            "description": (j.get("description") or "")[:2400],
+        }
+        for idx, j in enumerate(batch)
+    ]
+
+    bullets_desc = (
+        '["3 bullets optimizados en español usando **negritas** en tecnologías y métricas reales del CV"]'
+        if optimize_bullets
+        else "[]"
+    )
+
+    prompt = f"""Analiza este lote de {len(batch)} vacantes contra el CV del candidato y responde ÚNICAMENTE con un objeto JSON válido en español.
+
+REGLA CRÍTICA DE UBICACIÓN Y ELEGIBILIDAD:
+- El candidato reside en Tijuana, Baja California, México.
+- Si una vacante es presencial, híbrida o exige residencia en OTRO país distinto a México (Chile, Santiago, Colombia, Argentina, Perú, España, Uruguay), asigna un matchScore máximo de 25 y adviértelo al inicio del summary.
+- Solo otorga puntajes altos (>75) si la vacante es en Tijuana/México o 100% remota abierta a México/LATAM.
+
+CV DEL CANDIDATO:
+{cv_text[:5000]}
+
+LOTE DE VACANTES (JSON):
+{json.dumps(jobs_payload, ensure_ascii=False)}
+
+DEVUELVE EXACTAMENTE ESTE OBJETO JSON CON UN ARREGLO "results" DEL MISMO TAMAÑO ({len(batch)} elementos):
+{{
+  "results": [
+    {{
+      "job_index": 0,
+      "matchScore": 0,
+      "tags": ["3 a 5 tecnologías clave"],
+      "summary": "Resumen breve (2-3 líneas) sobre compatibilidad real.",
+      "gaps": ["2 a 4 palabras clave faltantes"],
+      "gapSuggestion": "Sugerencia práctica de 1 línea.",
+      "bullets": {bullets_desc}
+    }}
+  ]
+}}
+"""
+    raw = _call_llm_json(provider, model, api_key, prompt, temperature=temperature)
+    results_list = raw.get("results") if isinstance(raw, dict) else (raw if isinstance(raw, list) else None)
+    if not isinstance(results_list, list) or len(results_list) != len(batch):
+        raise ValueError("Respuesta batch incompleta, usando fallback individual")
+
+    by_idx = {int(r.get("job_index", i)): r for i, r in enumerate(results_list)}
+    formatted = []
+    for i, job in enumerate(batch):
+        res_item = by_idx.get(i, results_list[i])
+        formatted.append(_format_analyzed_item(job, res_item, provider, model, optimize_bullets))
+    return formatted
 
 
 def optimize_bullets_for_job(job: dict, cfg: dict) -> list:
@@ -214,56 +303,175 @@ Devuelve ÚNICAMENTE un JSON válido con 3 bullets optimizados para el CV del ca
     return [str(b) for b in bullets][:4]
 
 
-def run_phase2(optimize_bullets: bool = False):
+def generate_outreach_for_job(job: dict, cfg: dict) -> str:
+    """Genera un mensaje corto y directo (3-4 líneas) para contactar al reclutador por LinkedIn o correo."""
+    provider = (cfg.get("ai_provider") or "gemini").lower()
+    model = cfg.get("ai_model") or ("deepseek-chat" if provider == "deepseek" else "gemini-2.5-flash")
+    api_key = _get_api_key(provider)
+    if not api_key:
+        raise RuntimeError(
+            f"Falta configurar la API key de {provider.capitalize()} en Búsqueda & Config o en .env."
+        )
+
+    cv_text = _load_cv()
+    prompt = f"""Redacta un mensaje breve, humano y directo en español (máximo 4 líneas, sin emojis ni lenguaje robótico) para enviar por LinkedIn o correo al reclutador de esta vacante.
+
+REGLAS:
+- Menciona el puesto exacto y la empresa.
+- Conecta con 1 o 2 experiencias/proyectos reales del CV que mejor encajen con la vacante.
+- Cierra incluyendo de forma natural el portafolio: eduardovazquez.online (si aparece en el CV) y disposición para conversar.
+- NO inventes años de experiencia ni tecnologías que no estén en el CV.
+
+CV DEL CANDIDATO:
+{cv_text[:4500]}
+
+VACANTE:
+Título: {job.get('title', '')}
+Empresa: {job.get('company', '')}
+Ubicación: {job.get('location', '')}
+Resumen / Descripción:
+{(job.get('description') or job.get('summary') or '')[:2500]}
+
+Devuelve ÚNICAMENTE este JSON válido:
+{{
+  "message": "Hola, vi la vacante de..."
+}}
+"""
+    result = _call_llm_json(provider, model, api_key, prompt, temperature=0.35)
+    return str(result.get("message") or "").strip()
+
+
+def run_phase2(optimize_bullets: bool = False, force_reanalyze: bool = False):
     cfg = load_config()
     provider = (cfg.get("ai_provider") or "gemini").lower()
     model = cfg.get("ai_model") or ("deepseek-chat" if provider == "deepseek" else "gemini-2.5-flash")
+    batch_size = max(1, min(6, int(cfg.get("batch_size") or 4)))
 
-    if not SCRAPED_PATH.exists():
-        print("[ERROR] No existe data/jobs_scraped.json. Ejecuta primero la Fase 01.", flush=True)
-        sys.exit(1)
+    # Cargar desde SQLite si está disponible, con fallback transparente a JSON
+    use_sqlite = False
+    all_jobs = []
+    try:
+        from backend.db import get_all_jobs
 
-    scraped_jobs = json.loads(SCRAPED_PATH.read_text(encoding="utf-8"))
-    if not scraped_jobs:
-        print("[WARN] No hay vacantes en data/jobs_scraped.json para analizar.", flush=True)
+        all_jobs = get_all_jobs(include_discarded=True)
+        if all_jobs:
+            use_sqlite = True
+    except Exception:
+        use_sqlite = False
+
+    if not all_jobs:
+        if not SCRAPED_PATH.exists():
+            print("[ERROR] No existe data/jobs_scraped.json. Ejecuta primero la Fase 01.", flush=True)
+            sys.exit(1)
+        all_jobs = json.loads(SCRAPED_PATH.read_text(encoding="utf-8"))
+
+    if not all_jobs:
+        print("[WARN] No hay vacantes disponibles para analizar.", flush=True)
         return []
 
+    to_analyze = [
+        j
+        for j in all_jobs
+        if j.get("status") != "discarded"
+        and (force_reanalyze or not j.get("analyzed") or (optimize_bullets and not j.get("optimized")))
+    ]
+    cached_count = len(all_jobs) - len(to_analyze)
+
     cv_text = _load_cv()
-    mode_label = "Análisis ATS + Optimización de Bullets" if optimize_bullets else "Solo Análisis ATS (sin optimizar bullets)"
+    mode_label = (
+        "Análisis ATS + Optimización de Bullets"
+        if optimize_bullets
+        else "Solo Análisis ATS (sin optimizar bullets)"
+    )
 
     print("=" * 60, flush=True)
     print(f"[INFO] FASE 02: {mode_label}", flush=True)
-    print(f"[INFO] Proveedor: {provider.capitalize()} | Modelo: {model} | Vacantes: {len(scraped_jobs)}", flush=True)
+    print(
+        f"[INFO] Proveedor: {provider.capitalize()} | Modelo: {model} | Lote (batch): {batch_size}",
+        flush=True,
+    )
+    print(
+        f"[INFO] Pendientes de análisis: {len(to_analyze)} | En caché SQLite (ahorro de tokens): {cached_count}",
+        flush=True,
+    )
     print("=" * 60, flush=True)
 
-    analyzed = []
-    for idx, job in enumerate(scraped_jobs, 1):
-        title = (job.get("title") or "Sin título")[:52]
-        company = job.get("company") or "Empresa"
-        print(f"[INFO] [{idx}/{len(scraped_jobs)}] Analizando: {title} @ {company}...", flush=True)
+    newly_analyzed = []
+    for start in range(0, len(to_analyze), batch_size):
+        chunk = to_analyze[start : start + batch_size]
+        end_idx = start + len(chunk)
+        print(
+            f"[INFO] Procesando lote [{start + 1}-{end_idx}/{len(to_analyze)}] ({len(chunk)} vacantes en 1 request)...",
+            flush=True,
+        )
         try:
-            item = analyze_job(job, cv_text, cfg, optimize_bullets=optimize_bullets)
-            analyzed.append(item)
-            print(f"    [OK] Match ATS: {item['matchScore']}% | Brechas: {len(item['gaps'])}", flush=True)
+            batch_results = analyze_jobs_batch(
+                chunk, cv_text, cfg, optimize_bullets=optimize_bullets
+            )
+            newly_analyzed.extend(batch_results)
+            for item in batch_results:
+                print(
+                    f"    [OK] {item['title'][:45]} @ {item['company']} -> Match: {item['matchScore']}%",
+                    flush=True,
+                )
         except urllib.error.HTTPError as err:
             print(f"    [ERROR] Error HTTP {err.code} con {provider}: {err.reason}", flush=True)
             if err.code in (401, 403):
                 print("[ERROR] API key inválida o sin permisos. Deteniendo Fase 02.", flush=True)
                 sys.exit(1)
-        except Exception as exc:
-            print(f"    [WARN] No se pudo analizar esta vacante: {exc}", flush=True)
+        except Exception as batch_exc:
+            print(f"    [WARN] Lote falló ({batch_exc}), reintentando individualmente...", flush=True)
+            for job in chunk:
+                try:
+                    item = analyze_job(job, cv_text, cfg, optimize_bullets=optimize_bullets)
+                    newly_analyzed.append(item)
+                    print(
+                        f"    [OK] {item['title'][:45]} -> Match: {item['matchScore']}%",
+                        flush=True,
+                    )
+                except Exception as single_exc:
+                    print(f"    [WARN] Omitida '{job.get('title', '')[:40]}': {single_exc}", flush=True)
 
-    analyzed.sort(key=lambda x: x.get("matchScore", 0), reverse=True)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    ANALYZED_PATH.write_text(
-        json.dumps(analyzed, indent=2, ensure_ascii=False),
-        encoding="utf-8",
+    if use_sqlite and newly_analyzed:
+        from backend.db import get_pending_alert_jobs, mark_alerts_sent, upsert_analyzed_jobs
+
+        final_jobs = upsert_analyzed_jobs(newly_analyzed)
+
+        # Disparar alertas automáticas Discord/Telegram si están configuradas
+        alert_min = int(cfg.get("alert_min_score") or 85)
+        pending_alerts = get_pending_alert_jobs(min_score=alert_min)
+        if pending_alerts:
+            try:
+                from backend.notifier import dispatch_high_match_alerts
+
+                alert_res = dispatch_high_match_alerts(pending_alerts, min_score=alert_min)
+                if alert_res.get("sent"):
+                    mark_alerts_sent([j["id"] for j in pending_alerts])
+                    print(
+                        f"[OK] Alerta enviada ({alert_res.get('count')} vacantes >= {alert_min}% Match).",
+                        flush=True,
+                    )
+            except Exception as alert_exc:
+                print(f"[WARN] No se pudo enviar alerta webhook: {alert_exc}", flush=True)
+    elif newly_analyzed:
+        newly_analyzed.sort(key=lambda x: x.get("matchScore", 0), reverse=True)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        ANALYZED_PATH.write_text(
+            json.dumps(newly_analyzed, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        final_jobs = newly_analyzed
+    else:
+        final_jobs = all_jobs
+
+    print("=" * 60, flush=True)
+    print(
+        f"[OK] FASE 02 COMPLETADA: {len(newly_analyzed)} vacantes analizadas en esta corrida "
+        f"({cached_count} recuperadas desde caché sin gastar tokens).",
+        flush=True,
     )
-
     print("=" * 60, flush=True)
-    print(f"[OK] FASE 02 COMPLETADA: {len(analyzed)} vacantes analizadas y guardadas en jobs_analyzed.json.", flush=True)
-    print("=" * 60, flush=True)
-    return analyzed
+    return final_jobs
 
 
 if __name__ == "__main__":
@@ -273,5 +481,10 @@ if __name__ == "__main__":
         action="store_true",
         help="Generar también bullets optimizados durante el análisis masivo",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-analizar incluso vacantes ya almacenadas en caché SQLite",
+    )
     args = parser.parse_args()
-    run_phase2(optimize_bullets=args.optimize)
+    run_phase2(optimize_bullets=args.optimize, force_reanalyze=args.force)

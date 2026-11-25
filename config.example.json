@@ -11,9 +11,14 @@
   "max_per_keyword": 15,
   "headless": true,
   "exclude_english": true,
+  "work_mode": "both",
   "sources": ["linkedin", "computrabajo", "getonboard"],
   "ai_provider": "gemini",
   "ai_model": "gemini-2.5-flash",
+  "batch_size": 4,
   "min_match_score": 75,
+  "alert_min_score": 85,
+  "schedule_enabled": false,
+  "schedule_interval_hours": 12,
   "temperature": 0.2
 }

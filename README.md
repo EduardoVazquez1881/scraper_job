@@ -20,25 +20,29 @@ flowchart LR
 
 ## Funcionalidades Principales
 
-### Fase 01 — Extracción Multi-Fuente y Filtros Deterministas
+### Fase 01 — Extracción Multi-Fuente, Filtros Deterministas y Persistencia SQLite
 - **Plataformas configurables (`scrapers/`):**
   - **LinkedIn** (`linkedin_scraper.py` vía Playwright con soporte para filtro remoto `&f_WT=2`).
   - **Computrabajo MX** (`scrapers/computrabajo_scraper.py`).
   - **Indeed MX** (`scrapers/indeed_scraper.py` con detección limpia de verificación).
   - **Get on Board** (`scrapers/getonboard_scraper.py` vía API JSON pública oficial).
-- **Orquestador unificado (`multi_scraper.py`):** Ejecuta únicamente las fuentes seleccionadas, deduplica enlaces y unifica el resultado en `data/jobs_scraped.json`.
+- **Persistencia e historial SQLite (`backend/db.py`):** Almacena todas las vacantes en `data/jobhunter.db` deduplicadas por hash SHA-256 de URL (manteniendo espejos JSON compatibles), evitando re-analizar vacantes ya procesadas y preservando notas y estados CRM entre ejecuciones.
 - **Filtros previos al consumo de IA:**
   - **Filtro de idioma (`exclude_english`):** Descarta vacantes redactadas en inglés o que exijan inglés conversacional/avanzado antes de gastar tokens.
   - **Filtro geográfico (`work_mode`):** Modos rápidos **Local Tijuana**, **México Remoto** o **Tijuana + Remoto**, descartando vacantes presenciales de otros países.
 
-### Fase 02 — Análisis ATS y Optimización Bajo Demanda (`ai_optimizer.py`)
+### Fase 02 — Análisis ATS por Lotes, Mensaje a Reclutador y Alertas
 - **Multi-proveedor de IA:** Selector entre **Google Gemini** (`gemini-2.5-flash`, `gemini-2.5-pro`) y **DeepSeek** (`deepseek-chat`, `deepseek-reasoner`), con botón **Testear Conexión** (`POST /api/ai/test`) y medición de latencia.
-- **Modo ahorro de tokens por defecto:** La Fase 02 ejecuta primero **Solo Análisis ATS** (*Match Score 0–100*, resumen, tecnologías detectadas y brechas de palabras clave).
-- **Optimización bajo demanda:** Desde **Vacantes & Match** puedes pulsar **Optimizar Bullets con IA** solo en las vacantes que realmente te interesen (o activar el toggle de optimización en lote en **Ejecutar Pipeline**).
+- **Análisis por lotes (`batch_size`):** Evalúa múltiples vacantes en una sola petición estructurada (enviando el CV una única vez por lote con fallback individual automático), reduciendo ~70% el consumo de tokens de entrada.
+- **Optimización y contacto en 1 clic:**
+  - **Optimizar Bullets con IA** (`POST /api/jobs/{id}/optimize`) solo en las vacantes de interés.
+  - **Mensaje Directo para Reclutador** (`POST /api/jobs/{id}/outreach`) redactado en español para LinkedIn o correo.
+- **Automatización programada y alertas (`backend/notifier.py`):** Ejecución periódica opcional en segundo plano (`6h`, `12h`, `24h`) con notificaciones automáticas a **Discord Webhook** o **Telegram Bot** cuando aparecen vacantes que superan el puntaje objetivo.
 
-### Consola Web Interactiva y Gestión de CV
-- **Vacantes & Match:** 4 tarjetas KPI, búsqueda global (`Ctrl + K`), filtros por puntaje (`+70%`, `+85%`), ubicación y keyword, vista maestro-detalle, seguimiento de estado (*Postulado / Sin postular*), copiado de bullets en 1 clic y exportación a HTML.
-- **Mi Perfil & CV:** Editor Markdown con vista previa ATS en tiempo real y **carga directa de CV en PDF** (`POST /api/cv/upload-pdf` con extracción automática vía `pypdf`).
+### Consola Web Interactiva, Mini-CRM y Exportación de CV Adaptado
+- **Vacantes & Match (Mini-CRM):** Paneles con desplazamiento independiente, KPIs en vivo, búsqueda global (`Ctrl + K`), estados de seguimiento (*Por revisar*, *Postulado*, *En entrevista*, *Descartada*), botón rápido para ocultar descartadas y notas persistentes por vacante.
+- **Exportación directa de CV adaptado (`backend/exporter.py`):** Descarga inmediata en **PDF** (`fpdf2`) o **DOCX** (`python-docx`) inyectando los bullets optimizados para la vacante seleccionada (`GET /api/jobs/{id}/export-cv?format=pdf|docx`).
+- **Mi Perfil & CV:** Editor Markdown con vista previa ATS en tiempo real y **carga directa de CV en PDF** (`POST /api/cv/upload-pdf` vía `pypdf`).
 - **Ejecutar Pipeline:** Consola de logs en vivo mediante polling sobre FastAPI con controles para correr Fase 01 + Fase 02 juntas o por separado.
 
 ---
@@ -64,7 +68,7 @@ flowchart LR
 
 | Capa | Tecnologías |
 | :--- | :--- |
-| **Backend & API** | Python 3.11+, FastAPI, Uvicorn, Pydantic, `pypdf`, `python-dotenv` |
+| **Backend & Persistencia** | Python 3.11+, FastAPI, Uvicorn, SQLite3, Pydantic, `pypdf`, `python-docx`, `fpdf2`, `python-dotenv` |
 | **Frontend** | React 19, Vite 7, Tailwind CSS v4, Lucide React |
 | **Automatización & IA** | Playwright (Chromium), Google Gemini API, DeepSeek API |
 | **Contenedores** | Docker, Docker Compose, Nginx |

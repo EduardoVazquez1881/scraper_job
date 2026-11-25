@@ -79,13 +79,28 @@ def run_multi_scrape():
     scraped_path = DATA_DIR / "jobs_scraped.json"
     legacy_path = ROOT_DIR / "resultados_scraping.json"
 
-    for out_path in (scraped_path, legacy_path):
-        with open(out_path, "w", encoding="utf-8") as f:
+    # Persistir en SQLite con deduplicación histórica (sin perder estado ni análisis previos)
+    try:
+        from backend.db import upsert_scraped_jobs
+
+        all_saved, newly_inserted, already_known = upsert_scraped_jobs(deduped)
+        print(
+            f"[INFO] SQLite histórico: {newly_inserted} vacantes nuevas insertadas, "
+            f"{already_known} ya registradas previamente (total en BD: {len(all_saved)}).",
+            flush=True,
+        )
+    except Exception as exc:
+        print(f"[WARN] No se pudo sincronizar con SQLite ({exc}), guardando en JSON directo.", flush=True)
+        for out_path in (scraped_path, legacy_path):
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(deduped, f, indent=2, ensure_ascii=False)
+    else:
+        with open(legacy_path, "w", encoding="utf-8") as f:
             json.dump(deduped, f, indent=2, ensure_ascii=False)
 
     print("=" * 60, flush=True)
     print(
-        f"[OK] FASE 01 COMPLETADA: {len(deduped)} vacantes guardadas "
+        f"[OK] FASE 01 COMPLETADA: {len(deduped)} vacantes procesadas en esta corrida "
         f"({skipped_en} descartadas por inglés).",
         flush=True,
     )

@@ -12,6 +12,31 @@ import {
   INITIAL_PROMPT,
 } from './data/mockJobs';
 
+function buildConfigPayload(config) {
+  return {
+    keywords: config.keywords,
+    location: config.location,
+    time_filter: config.time_filter,
+    max_per_keyword: Number(config.max_per_keyword) || 15,
+    headless: Boolean(config.headless),
+    exclude_english: Boolean(config.exclude_english ?? true),
+    work_mode: config.work_mode || 'both',
+    sources: config.sources?.length
+      ? config.sources
+      : ['linkedin', 'computrabajo', 'getonboard'],
+    ai_provider: config.ai_provider || 'gemini',
+    ai_model: config.ai_model || 'gemini-2.5-flash',
+    batch_size: Number(config.batch_size) || 4,
+    min_match_score: Number(config.min_match_score) || 75,
+    alert_min_score: Number(config.alert_min_score) || 85,
+    schedule_enabled: Boolean(config.schedule_enabled),
+    schedule_interval_hours: Number(config.schedule_interval_hours) || 12,
+    temperature: Number(config.temperature) || 0.2,
+    api_keys: config.api_keys || {},
+    alert_secrets: config.alert_secrets || {},
+  };
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('vacantes');
   const [apiConnected, setApiConnected] = useState(false);
@@ -27,9 +52,11 @@ export default function App() {
   const [optimizeBullets, setOptimizeBullets] = useState(false);
   const [optimizingJobId, setOptimizingJobId] = useState(null);
   const [optimizeError, setOptimizeError] = useState('');
+  const [generatingOutreachJobId, setGeneratingOutreachJobId] = useState(null);
+  const [outreachError, setOutreachError] = useState('');
   const [logs, setLogs] = useState([
     '[INFO] JobHunter AI Console inicializada.',
-    '[INFO] Playwright + Gemini 2.5 Flash listos para analizar vacantes.',
+    '[INFO] Playwright + SQLite + Gemini/DeepSeek listos para analizar vacantes.',
   ]);
   const searchInputRef = useRef(null);
 
@@ -86,28 +113,25 @@ export default function App() {
       await fetch('/api/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          keywords: config.keywords,
-          location: config.location,
-          time_filter: config.time_filter,
-          max_per_keyword: Number(config.max_per_keyword) || 15,
-          headless: Boolean(config.headless),
-          exclude_english: Boolean(config.exclude_english ?? true),
-          work_mode: config.work_mode || 'both',
-          sources: config.sources?.length ? config.sources : ['linkedin', 'computrabajo', 'getonboard'],
-          ai_provider: config.ai_provider || 'gemini',
-          ai_model: config.ai_model || 'gemini-2.5-flash',
-          min_match_score: Number(config.min_match_score) || 75,
-          temperature: Number(config.temperature) || 0.2,
-          api_keys: config.api_keys || {},
-        }),
+        body: JSON.stringify(buildConfigPayload(config)),
       }).catch(() => {});
       await fetch('/api/prompt', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: prompt }),
       }).catch(() => {});
-      // Refrescar lista de vacantes con el nuevo filtro de idioma
+      // Refrescar estado de alertas (.env) y lista de vacantes filtradas
+      const cfgRes = await fetch('/api/config').catch(() => null);
+      if (cfgRes?.ok) {
+        const freshCfg = await cfgRes.json();
+        if (freshCfg?.keywords) {
+          setConfig((prev) => ({
+            ...prev,
+            ...freshCfg,
+            alert_secrets: { discord_webhook: '', telegram_token: '', telegram_chat_id: '' },
+          }));
+        }
+      }
       const jobsRes = await fetch('/api/jobs').catch(() => null);
       if (jobsRes?.ok) {
         const list = await jobsRes.json();
@@ -156,17 +180,44 @@ export default function App() {
     }
   };
 
-  const handleToggleApplied = async (jobId, applied) => {
+  const handleUpdateJobCrm = async (jobId, patch) => {
     setJobs((prev) =>
-      prev.map((j) => (j.id === jobId ? { ...j, applied } : j))
+      prev.map((j) => {
+        if (j.id !== jobId) return j;
+        const nextStatus =
+          patch.status !== undefined
+            ? patch.status
+            : patch.applied !== undefined
+            ? patch.applied
+              ? 'applied'
+              : 'pending'
+            : j.status || (j.applied ? 'applied' : 'pending');
+        const nextApplied =
+          patch.applied !== undefined
+            ? patch.applied
+            : nextStatus === 'applied' || nextStatus === 'interview';
+        return {
+          ...j,
+          status: nextStatus,
+          applied: nextApplied,
+          ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+        };
+      })
     );
     if (apiConnected) {
       await fetch(`/api/jobs/${jobId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ applied }),
+        body: JSON.stringify(patch),
       }).catch(() => {});
     }
+  };
+
+  const handleToggleApplied = async (jobId, applied) => {
+    return handleUpdateJobCrm(jobId, {
+      applied,
+      status: applied ? 'applied' : 'pending',
+    });
   };
 
   // Polling en vivo de logs del backend FastAPI cuando el pipeline corre
@@ -183,7 +234,6 @@ export default function App() {
         if (data.status !== 'running') {
           setPipelineStatus(data.status || 'idle');
           setActivePhase('ready');
-          // Recargar vacantes reales al finalizar el scraping/análisis
           const jobsRes = await fetch('/api/jobs');
           if (jobsRes.ok) {
             const list = await jobsRes.json();
@@ -214,20 +264,7 @@ export default function App() {
         await fetch('/api/config', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            keywords: config.keywords,
-            location: config.location,
-            time_filter: config.time_filter,
-            max_per_keyword: Number(config.max_per_keyword) || 15,
-            headless: Boolean(config.headless),
-            exclude_english: Boolean(config.exclude_english ?? true),
-            sources: config.sources?.length ? config.sources : ['linkedin', 'computrabajo', 'getonboard'],
-            ai_provider: config.ai_provider || 'gemini',
-            ai_model: config.ai_model || 'gemini-2.5-flash',
-            min_match_score: Number(config.min_match_score) || 75,
-            temperature: Number(config.temperature) || 0.2,
-            api_keys: config.api_keys || {},
-          }),
+          body: JSON.stringify(buildConfigPayload(config)),
         });
         const params = new URLSearchParams({
           phase,
@@ -250,7 +287,6 @@ export default function App() {
         setPipelineStatus('idle');
       }
     } else {
-      // Simulación limpia en modo beta local cuando el backend no está levantado
       setLogs((prev) => [
         ...prev,
         `[${now}] Iniciando fase '${phase}' con ${config.keywords.length} keywords en "${config.location}"...`,
@@ -273,24 +309,10 @@ export default function App() {
     setOptimizeError('');
     try {
       if (apiConnected) {
-        // Asegurar que la API key actual esté guardada en .env antes de optimizar
         await fetch('/api/config', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            keywords: config.keywords,
-            location: config.location,
-            time_filter: config.time_filter,
-            max_per_keyword: Number(config.max_per_keyword) || 15,
-            headless: Boolean(config.headless),
-            exclude_english: Boolean(config.exclude_english ?? true),
-            sources: config.sources?.length ? config.sources : ['linkedin', 'computrabajo', 'getonboard'],
-            ai_provider: config.ai_provider || 'gemini',
-            ai_model: config.ai_model || 'gemini-2.5-flash',
-            min_match_score: Number(config.min_match_score) || 75,
-            temperature: Number(config.temperature) || 0.2,
-            api_keys: config.api_keys || {},
-          }),
+          body: JSON.stringify(buildConfigPayload(config)),
         });
         const res = await fetch(`/api/jobs/${jobId}/optimize`, { method: 'POST' });
         const data = await res.json();
@@ -310,6 +332,37 @@ export default function App() {
       setOptimizeError('Error de conexión con FastAPI al optimizar bullets.');
     } finally {
       setOptimizingJobId(null);
+    }
+  };
+
+  const handleGenerateOutreach = async (jobId) => {
+    setGeneratingOutreachJobId(jobId);
+    setOutreachError('');
+    try {
+      if (apiConnected) {
+        await fetch('/api/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildConfigPayload(config)),
+        });
+        const res = await fetch(`/api/jobs/${jobId}/outreach`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+          setOutreachError(data.detail || 'No se pudo generar el mensaje para el reclutador.');
+          return;
+        }
+        setJobs((prev) =>
+          prev.map((j) =>
+            j.id === jobId ? { ...j, outreachMessage: data.message || '' } : j
+          )
+        );
+      } else {
+        setOutreachError('Conecta el backend FastAPI (:8000) para generar el mensaje con IA.');
+      }
+    } catch {
+      setOutreachError('Error de conexión con FastAPI al generar mensaje de contacto.');
+    } finally {
+      setGeneratingOutreachJobId(null);
     }
   };
 
@@ -363,11 +416,16 @@ export default function App() {
               searchQuery={searchQuery}
               setSearchQuery={setSearchQuery}
               onToggleApplied={handleToggleApplied}
+              onUpdateJobCrm={handleUpdateJobCrm}
               onRunPipeline={() => handleTriggerPhase('all')}
               onOpenSearchConfig={() => setActiveTab('config')}
               onOptimizeJob={handleOptimizeJob}
               optimizingJobId={optimizingJobId}
               optimizeError={optimizeError}
+              onGenerateOutreach={handleGenerateOutreach}
+              generatingOutreachJobId={generatingOutreachJobId}
+              outreachError={outreachError}
+              apiConnected={apiConnected}
               searchInputRef={searchInputRef}
             />
           )}

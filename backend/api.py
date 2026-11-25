@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import re
@@ -6,6 +7,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from threading import Thread
@@ -14,8 +16,19 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-import io
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from backend.db import (
+    get_all_jobs,
+    get_job_by_id,
+    init_db,
+    save_job_bullets,
+    save_job_outreach,
+    update_job_crm,
+)
+from backend.exporter import build_adapted_docx, build_adapted_pdf
+from backend.notifier import send_test_alert
 
 load_dotenv()
 
@@ -28,7 +41,71 @@ PROMPT_PATH = ROOT_DIR / "prompts" / "ats_optimizer.txt"
 JOBS_DATA_PATH = ROOT_DIR / "data" / "jobs_analyzed.json"
 JOBS_SCRAPED_PATH = ROOT_DIR / "data" / "jobs_scraped.json"
 
-app = FastAPI(title="JobHunter AI API", version="2.4.0")
+pipeline_state = {
+    "status": "idle",
+    "phase": "ready",
+    "started_at": None,
+    "finished_at": None,
+    "last_scheduled_run": None,
+    "logs": [
+        "[INFO] FastAPI + SQLite + Gemini/DeepSeek engine listo.",
+        "[INFO] Configura tus keywords o ejecuta el pipeline para extraer nuevas vacantes.",
+    ],
+}
+
+
+def read_json_safe(path: Path, fallback_path: Optional[Path] = None):
+    target = path if path.exists() else fallback_path
+    if target and target.exists():
+        try:
+            return json.loads(target.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def _scheduler_loop():
+    """Hilo ligero que ejecuta búsqueda automática periódica solo si schedule_enabled es True."""
+    while True:
+        time.sleep(60)
+        try:
+            cfg = read_json_safe(CONFIG_PATH, CONFIG_EXAMPLE_PATH)
+            if not cfg.get("schedule_enabled"):
+                continue
+            if pipeline_state["status"] == "running":
+                continue
+
+            interval_hours = max(1, int(cfg.get("schedule_interval_hours") or 12))
+            last_run_iso = pipeline_state.get("last_scheduled_run")
+            should_run = False
+            if not last_run_iso:
+                should_run = True
+            else:
+                elapsed_hours = (
+                    datetime.now() - datetime.fromisoformat(last_run_iso)
+                ).total_seconds() / 3600.0
+                if elapsed_hours >= interval_hours:
+                    should_run = True
+
+            if should_run:
+                pipeline_state["last_scheduled_run"] = datetime.now().isoformat()
+                Thread(
+                    target=_run_pipeline_worker,
+                    args=("all", False, True),
+                    daemon=True,
+                ).start()
+        except Exception:
+            pass
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    Thread(target=_scheduler_loop, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="JobHunter AI API", version="2.5.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,22 +115,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-pipeline_state = {
-    "status": "idle",
-    "phase": "ready",
-    "started_at": None,
-    "finished_at": None,
-    "logs": [
-        "[INFO] FastAPI + Gemini 2.5 engine listo.",
-        "[INFO] Configura tus keywords o ejecuta el pipeline para extraer nuevas vacantes."
-    ],
-}
-
 
 class ConfigModel(BaseModel):
     keywords: List[str]
     location: str
-    time_filter: str = "r604800"
+    time_filter: str = "1w"
     max_per_keyword: int = 15
     headless: bool = True
     exclude_english: bool = True
@@ -61,9 +127,14 @@ class ConfigModel(BaseModel):
     sources: List[str] = ["linkedin", "computrabajo", "getonboard"]
     ai_provider: str = "gemini"
     ai_model: str = "gemini-2.5-flash"
+    batch_size: int = 4
     min_match_score: int = 75
+    alert_min_score: int = 85
+    schedule_enabled: bool = False
+    schedule_interval_hours: int = 12
     temperature: float = 0.2
     api_keys: Optional[dict] = None
+    alert_secrets: Optional[dict] = None
 
 
 class TestConnectionPayload(BaseModel):
@@ -72,28 +143,34 @@ class TestConnectionPayload(BaseModel):
     api_key: Optional[str] = ""
 
 
+class TestAlertPayload(BaseModel):
+    discord_webhook: Optional[str] = ""
+    telegram_token: Optional[str] = ""
+    telegram_chat_id: Optional[str] = ""
+
+
 class TextPayload(BaseModel):
     content: str
 
 
 class JobStatusPayload(BaseModel):
-    applied: bool
-
-
-def read_json_safe(path: Path, fallback_path: Optional[Path] = None):
-    target = path if path.exists() else fallback_path
-    if target and target.exists():
-        return json.loads(target.read_text(encoding="utf-8"))
-    return {}
+    applied: Optional[bool] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
 
 
 @app.get("/api/health")
 def health():
+    load_dotenv(ROOT_DIR / ".env", override=True)
     return {
         "status": "ok",
-        "version": "2.4.0",
+        "version": "2.5.0",
         "gemini_configured": bool(os.getenv("GEMINI_API_KEY")),
         "deepseek_configured": bool(os.getenv("DEEPSEEK_API_KEY")),
+        "discord_configured": bool(os.getenv("DISCORD_WEBHOOK_URL")),
+        "telegram_configured": bool(
+            os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID")
+        ),
         "pipeline_status": pipeline_state["status"],
     }
 
@@ -103,6 +180,7 @@ def test_ai_connection(payload: TestConnectionPayload):
     provider = payload.provider.lower().strip()
     key = (payload.api_key or "").strip()
     if not key:
+        load_dotenv(ROOT_DIR / ".env", override=True)
         env_var = "GEMINI_API_KEY" if provider == "gemini" else "DEEPSEEK_API_KEY"
         key = (os.getenv(env_var) or "").strip()
 
@@ -157,9 +235,26 @@ def test_ai_connection(payload: TestConnectionPayload):
         }
 
 
+@app.post("/api/notifications/test")
+def test_notifications(payload: TestAlertPayload):
+    return send_test_alert(
+        discord_webhook=payload.discord_webhook or "",
+        telegram_token=payload.telegram_token or "",
+        telegram_chat_id=payload.telegram_chat_id or "",
+    )
+
+
 @app.get("/api/config")
 def get_config():
-    return read_json_safe(CONFIG_PATH, CONFIG_EXAMPLE_PATH)
+    cfg = read_json_safe(CONFIG_PATH, CONFIG_EXAMPLE_PATH)
+    load_dotenv(ROOT_DIR / ".env", override=True)
+    cfg["alerts_configured"] = {
+        "discord": bool(os.getenv("DISCORD_WEBHOOK_URL")),
+        "telegram": bool(
+            os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID")
+        ),
+    }
+    return cfg
 
 
 def _save_env_key(env_var: str, value: str):
@@ -183,11 +278,27 @@ def _save_env_key(env_var: str, value: str):
 def update_config(payload: ConfigModel):
     data = payload.model_dump()
     api_keys = data.pop("api_keys", None) or {}
+    alert_secrets = data.pop("alert_secrets", None) or {}
+
     if isinstance(api_keys, dict):
         if (api_keys.get("gemini") or "").strip():
             _save_env_key("GEMINI_API_KEY", api_keys["gemini"].strip())
         if (api_keys.get("deepseek") or "").strip():
             _save_env_key("DEEPSEEK_API_KEY", api_keys["deepseek"].strip())
+
+    if isinstance(alert_secrets, dict):
+        if "discord_webhook" in alert_secrets and alert_secrets["discord_webhook"] is not None:
+            val = str(alert_secrets["discord_webhook"]).strip()
+            if val:
+                _save_env_key("DISCORD_WEBHOOK_URL", val)
+        if "telegram_token" in alert_secrets and alert_secrets["telegram_token"] is not None:
+            val = str(alert_secrets["telegram_token"]).strip()
+            if val:
+                _save_env_key("TELEGRAM_BOT_TOKEN", val)
+        if "telegram_chat_id" in alert_secrets and alert_secrets["telegram_chat_id"] is not None:
+            val = str(alert_secrets["telegram_chat_id"]).strip()
+            if val:
+                _save_env_key("TELEGRAM_CHAT_ID", val)
 
     CONFIG_PATH.write_text(
         json.dumps(data, indent=2, ensure_ascii=False),
@@ -260,35 +371,6 @@ def update_prompt(payload: TextPayload):
     return {"saved": True, "chars": len(payload.content)}
 
 
-def _normalize_scraped_job(job: dict, idx: int) -> dict:
-    company = job.get("company") or "Empresa"
-    words = [w for w in company.split() if w]
-    initials = (words[0][0] + (words[1][0] if len(words) > 1 else words[0][1:2])).upper() if words else "JB"
-    desc = (job.get("description") or "").strip()
-    preview = (desc[:340] + "...") if len(desc) > 340 else (desc or "Vacante extraída desde LinkedIn. Ejecuta la Fase 02 (IA) para generar el análisis ATS y bullets personalizados.")
-    return {
-        "id": str(job.get("id") or f"job-{idx + 1}"),
-        "initials": initials[:2],
-        "title": job.get("title") or "Sin título",
-        "company": company,
-        "location": job.get("location") or "No especificada",
-        "salary": job.get("salary") or "",
-        "matchScore": int(job.get("matchScore") or 0),
-        "keyword": job.get("keyword") or "General",
-        "source": job.get("source") or "LinkedIn",
-        "postedAt": job.get("postedAt") or job.get("scraped_at") or "Reciente",
-        "link": job.get("link") or "https://www.linkedin.com/jobs/",
-        "applied": bool(job.get("applied", False)),
-        "tags": job.get("tags") or [job.get("keyword") or "LinkedIn", "Fase 01"],
-        "summary": job.get("summary") or preview,
-        "gaps": job.get("gaps") or [],
-        "gapSuggestion": job.get("gapSuggestion") or "Ejecuta la Fase 02 (Análisis ATS con Gemini/DeepSeek) para detectar palabras clave faltantes.",
-        "bullets": job.get("bullets") or [
-            "Vacante lista para análisis semántico contra tu CV (profile/cv.md).",
-        ],
-    }
-
-
 def _requires_english(job: dict) -> bool:
     desc = job.get("description") or job.get("summary") or ""
     text = f"{job.get('title', '')} {desc}"
@@ -350,85 +432,106 @@ def _is_foreign_ineligible(job: dict) -> bool:
     in_mexico = any(k in combined for k in ("tijuana", "mexico", "méxico", "baja california", "mx"))
     if in_mexico:
         return False
-    has_foreign = any(tok in combined for tok in FOREIGN_ONLY_TOKENS)
-    if has_foreign:
-        return True
-    return False
+    return any(tok in combined for tok in FOREIGN_ONLY_TOKENS)
 
 
 @app.get("/api/jobs")
-def get_jobs():
+def get_jobs(include_discarded: bool = True):
     cfg = read_json_safe(CONFIG_PATH, CONFIG_EXAMPLE_PATH)
     exclude_english = bool(cfg.get("exclude_english", True))
-
-    if JOBS_DATA_PATH.exists():
-        raw = json.loads(JOBS_DATA_PATH.read_text(encoding="utf-8"))
-        return [
-            j
-            for j in raw
-            if not (exclude_english and _requires_english(j))
-            and not _is_foreign_ineligible(j)
-        ]
-    if JOBS_SCRAPED_PATH.exists():
-        raw = json.loads(JOBS_SCRAPED_PATH.read_text(encoding="utf-8"))
-        filtered = [
-            j
-            for j in raw
-            if not (exclude_english and _requires_english(j))
-            and not _is_foreign_ineligible(j)
-        ]
-        return [_normalize_scraped_job(j, idx) for idx, j in enumerate(filtered)]
-    return []
+    rows = get_all_jobs(include_discarded=include_discarded)
+    return [
+        j
+        for j in rows
+        if not (exclude_english and _requires_english(j))
+        and not _is_foreign_ineligible(j)
+    ]
 
 
 @app.patch("/api/jobs/{job_id}/status")
 def toggle_job_status(job_id: str, payload: JobStatusPayload):
-    target_path = JOBS_DATA_PATH if JOBS_DATA_PATH.exists() else JOBS_SCRAPED_PATH
-    if not target_path.exists():
-        raise HTTPException(status_code=404, detail="No hay vacantes guardadas aún")
-    jobs = json.loads(target_path.read_text(encoding="utf-8"))
-    updated = False
-    for job in jobs:
-        if str(job.get("id")) == str(job_id):
-            job["applied"] = payload.applied
-            updated = True
-            break
+    updated = update_job_crm(
+        job_id=job_id,
+        applied=payload.applied,
+        status=payload.status,
+        notes=payload.notes,
+    )
     if not updated:
         raise HTTPException(status_code=404, detail="Vacante no encontrada")
-    target_path.write_text(
-        json.dumps(jobs, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    return {"updated": True, "id": job_id, "applied": payload.applied}
+    return {
+        "updated": True,
+        "id": job_id,
+        "applied": updated["applied"],
+        "status": updated["status"],
+        "notes": updated["notes"],
+        "job": updated,
+    }
 
 
 @app.post("/api/jobs/{job_id}/optimize")
 def optimize_single_job(job_id: str):
-    target_path = JOBS_DATA_PATH if JOBS_DATA_PATH.exists() else JOBS_SCRAPED_PATH
-    if not target_path.exists():
-        raise HTTPException(status_code=404, detail="No hay vacantes guardadas aún")
-
-    jobs = json.loads(target_path.read_text(encoding="utf-8"))
-    target_job = None
-    for job in jobs:
-        if str(job.get("id")) == str(job_id):
-            target_job = job
-            break
+    target_job = get_job_by_id(job_id)
     if not target_job:
         raise HTTPException(status_code=404, detail="Vacante no encontrada")
 
     cfg = read_json_safe(CONFIG_PATH, CONFIG_EXAMPLE_PATH)
     try:
         from ai_optimizer import optimize_bullets_for_job
+
         bullets = optimize_bullets_for_job(target_job, cfg)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    target_job["bullets"] = bullets
-    target_job["optimized"] = True
-    target_path.write_text(
-        json.dumps(jobs, indent=2, ensure_ascii=False), encoding="utf-8"
+    updated = save_job_bullets(job_id, bullets)
+    return {"optimized": True, "id": job_id, "bullets": bullets, "job": updated}
+
+
+@app.post("/api/jobs/{job_id}/outreach")
+def generate_job_outreach(job_id: str):
+    target_job = get_job_by_id(job_id)
+    if not target_job:
+        raise HTTPException(status_code=404, detail="Vacante no encontrada")
+
+    cfg = read_json_safe(CONFIG_PATH, CONFIG_EXAMPLE_PATH)
+    try:
+        from ai_optimizer import generate_outreach_for_job
+
+        message = generate_outreach_for_job(target_job, cfg)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    updated = save_job_outreach(job_id, message)
+    return {"ok": True, "id": job_id, "outreachMessage": message, "job": updated}
+
+
+@app.get("/api/jobs/{job_id}/export-cv")
+def export_adapted_cv(job_id: str, format: str = "pdf"):
+    target_job = get_job_by_id(job_id)
+    if not target_job:
+        raise HTTPException(status_code=404, detail="Vacante no encontrada")
+
+    cv_target = CV_PATH if CV_PATH.exists() else CV_EXAMPLE_PATH
+    cv_text = cv_target.read_text(encoding="utf-8") if cv_target.exists() else ""
+    if not cv_text.strip():
+        raise HTTPException(status_code=400, detail="No hay CV configurado en Mi Perfil & CV")
+
+    safe_company = re.sub(r"[^A-Za-z0-9_-]+", "_", target_job.get("company") or "Empresa").strip("_") or "Empresa"
+    fmt = format.lower().strip()
+
+    if fmt == "docx":
+        raw = build_adapted_docx(cv_text, target_job)
+        filename = f"CV_Eduardo_Vazquez_{safe_company}.docx"
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    else:
+        raw = build_adapted_pdf(cv_text, target_job)
+        filename = f"CV_Eduardo_Vazquez_{safe_company}.pdf"
+        media_type = "application/pdf"
+
+    return StreamingResponse(
+        io.BytesIO(raw),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-    return {"optimized": True, "id": job_id, "bullets": bullets}
 
 
 def _run_pipeline_worker(phase: str, optimize_bullets: bool = False, include_phase1: bool = False):

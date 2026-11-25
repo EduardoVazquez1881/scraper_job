@@ -15,11 +15,20 @@ export const INITIAL_CONFIG = {
   sources: ['linkedin', 'computrabajo', 'getonboard'],
   ai_provider: 'gemini',
   ai_model: 'gemini-2.5-flash',
+  batch_size: 4,
   api_keys: {
     gemini: '',
     deepseek: '',
   },
+  alert_secrets: {
+    discord_webhook: '',
+    telegram_token: '',
+    telegram_chat_id: '',
+  },
   min_match_score: 80,
+  alert_min_score: 85,
+  schedule_enabled: false,
+  schedule_interval_hours: 12,
   temperature: 0.2,
 };
 
