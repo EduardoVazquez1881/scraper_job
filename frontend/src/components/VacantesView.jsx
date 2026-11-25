@@ -81,6 +81,7 @@ function getScoreBadgeClasses(score) {
 }
 
 export default function VacantesView({
+  mode = 'vacantes',
   jobs,
   keywords,
   searchQuery,
@@ -89,6 +90,8 @@ export default function VacantesView({
   onUpdateJobCrm,
   onRunPipeline,
   onOpenSearchConfig,
+  onGoToVacantes,
+  onGoToPostulaciones,
   onOptimizeJob,
   optimizingJobId,
   optimizeError,
@@ -98,11 +101,18 @@ export default function VacantesView({
   apiConnected,
   searchInputRef,
 }) {
+  const isPostulacionesMode = mode === 'postulaciones';
   const [minScore, setMinScore] = useState(0);
-  const [statusFilter, setStatusFilter] = useState('active');
+  const [statusFilter, setStatusFilter] = useState(
+    isPostulacionesMode ? 'applied_all' : 'active'
+  );
   const [locationFilter, setLocationFilter] = useState('all');
   const [selectedKeyword, setSelectedKeyword] = useState('all');
   const [sortBy, setSortBy] = useState('match');
+
+  useEffect(() => {
+    setStatusFilter(isPostulacionesMode ? 'applied_all' : 'active');
+  }, [isPostulacionesMode]);
   const [selectedJobId, setSelectedJobId] = useState(jobs[0]?.id ?? null);
   const [copied, setCopied] = useState(false);
   const [copiedOutreach, setCopiedOutreach] = useState(false);
@@ -115,13 +125,19 @@ export default function VacantesView({
     return jobs
       .filter((job) => {
         const st = getJobStatus(job);
-        if (statusFilter === 'active' && st === 'discarded') return false;
-        if (
-          statusFilter !== 'active' &&
-          statusFilter !== 'all' &&
-          st !== statusFilter
-        ) {
-          return false;
+        if (isPostulacionesMode) {
+          if (st !== 'applied' && st !== 'interview') return false;
+          if (statusFilter === 'applied' && st !== 'applied') return false;
+          if (statusFilter === 'interview' && st !== 'interview') return false;
+        } else {
+          if (statusFilter === 'active' && st === 'discarded') return false;
+          if (
+            statusFilter !== 'active' &&
+            statusFilter !== 'all' &&
+            st !== statusFilter
+          ) {
+            return false;
+          }
         }
         if (minScore > 0 && job.matchScore < minScore) return false;
         if (locationFilter === 'tijuana') {
@@ -196,14 +212,27 @@ export default function VacantesView({
     [nonDiscardedJobs]
   );
 
-  const appliedOrInterviewCount = useMemo(
-    () =>
-      jobs.filter((j) => {
-        const s = getJobStatus(j);
-        return s === 'applied' || s === 'interview';
-      }).length,
+  const appliedOnlyCount = useMemo(
+    () => jobs.filter((j) => getJobStatus(j) === 'applied').length,
     [jobs]
   );
+
+  const interviewOnlyCount = useMemo(
+    () => jobs.filter((j) => getJobStatus(j) === 'interview').length,
+    [jobs]
+  );
+
+  const appliedOrInterviewCount = appliedOnlyCount + interviewOnlyCount;
+
+  const avgAppliedMatch = useMemo(() => {
+    const list = jobs.filter((j) => {
+      const s = getJobStatus(j);
+      return s === 'applied' || s === 'interview';
+    });
+    if (!list.length) return 0;
+    const sum = list.reduce((acc, j) => acc + j.matchScore, 0);
+    return (sum / list.length).toFixed(1);
+  }, [jobs]);
 
   const handleCopyBullets = async () => {
     if (!activeJob) return;
@@ -281,25 +310,40 @@ export default function VacantesView({
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-zinc-50">
-              Vacantes & Match
+              {isPostulacionesMode ? 'Mis Postulaciones' : 'Vacantes & Match'}
             </h1>
             <span className="font-mono text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 uppercase">
-              • {nonDiscardedJobs.length} vacantes activas
+              •{' '}
+              {isPostulacionesMode
+                ? `${appliedOrInterviewCount} en seguimiento`
+                : `${nonDiscardedJobs.length} vacantes activas`}
             </span>
           </div>
           <p className="text-sm text-zinc-400 mt-1">
-            Exploración, CRM de seguimiento y optimización ATS con caché SQLite
+            {isPostulacionesMode
+              ? 'Seguimiento de postulaciones enviadas, entrevistas, notas y exportación de CV adaptado'
+              : 'Exploración, CRM de seguimiento y optimización ATS con caché SQLite'}
           </p>
         </div>
 
         <div className="flex items-center gap-2.5">
-          <button
-            onClick={onOpenSearchConfig}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium bg-[#111114] text-zinc-200 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900 transition cursor-pointer"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-400" />
-            Configurar Búsqueda
-          </button>
+          {isPostulacionesMode ? (
+            <button
+              onClick={onGoToVacantes}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium bg-[#111114] text-zinc-200 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900 transition cursor-pointer"
+            >
+              <ArrowRight className="w-3.5 h-3.5 text-emerald-400 rotate-180" />
+              Explorar Vacantes
+            </button>
+          ) : (
+            <button
+              onClick={onOpenSearchConfig}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium bg-[#111114] text-zinc-200 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900 transition cursor-pointer"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-400" />
+              Configurar Búsqueda
+            </button>
+          )}
           <button
             onClick={handleExportHtml}
             className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium bg-[#111114] text-zinc-200 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900 transition cursor-pointer"
@@ -307,86 +351,162 @@ export default function VacantesView({
             <Download className="w-3.5 h-3.5 text-zinc-400" />
             Exportar HTML
           </button>
-          <button
-            onClick={onRunPipeline}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 transition shadow-sm shadow-emerald-500/20 cursor-pointer"
-          >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            Ejecutar Pipeline
-          </button>
+          {!isPostulacionesMode && (
+            <button
+              onClick={onRunPipeline}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 transition shadow-sm shadow-emerald-500/20 cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              Ejecutar Pipeline
+            </button>
+          )}
         </div>
       </div>
 
       {/* 4 KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-4">
-          <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
-            <span>Vacantes Activas</span>
-            <Layers className="w-3.5 h-3.5 text-zinc-500" />
+      {isPostulacionesMode ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-4">
+            <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+              <span>Total Postulaciones</span>
+              <Layers className="w-3.5 h-3.5 text-zinc-500" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono text-zinc-50">
+                {appliedOrInterviewCount}
+              </span>
+              <span className="text-xs font-mono text-emerald-400">activas</span>
+            </div>
+            <p className="text-xs text-zinc-500 mt-1.5">
+              Postuladas y procesos en curso
+            </p>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-zinc-50">
-              {nonDiscardedJobs.length}
-            </span>
-            <span className="text-xs font-mono text-emerald-400">
-              SQLite dedup
-            </span>
-          </div>
-          <p className="text-xs text-zinc-500 mt-1.5">
-            Ingesta multi-fuente sin duplicados
-          </p>
-        </div>
 
-        <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-4">
-          <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
-            <span>Match Promedio</span>
-            <TrendingUp className="w-3.5 h-3.5 text-zinc-500" />
+          <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-4">
+            <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+              <span>Postuladas</span>
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono text-zinc-50">
+                {appliedOnlyCount}
+              </span>
+              <span className="text-xs text-zinc-400">enviadas</span>
+            </div>
+            <p className="text-xs text-zinc-500 mt-1.5">
+              En espera de respuesta
+            </p>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-zinc-50">
-              {avgMatch}%
-            </span>
-          </div>
-          <div className="mt-2.5 h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-emerald-400"
-              style={{ width: `${Math.min(100, Number(avgMatch))}%` }}
-            />
-          </div>
-        </div>
 
-        <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-4">
-          <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
-            <span>Match &gt; 80%</span>
-            <CheckCircle2 className="w-3.5 h-3.5 text-zinc-500" />
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-zinc-50">
-              {highAffinityCount}
+          <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-4">
+            <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+              <span>En Entrevista</span>
+              <Clock className="w-3.5 h-3.5 text-sky-400" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono text-zinc-50">
+                {interviewOnlyCount}
+              </span>
+              <span className="text-xs text-zinc-400">procesos</span>
+            </div>
+            <span className="inline-block mt-1.5 text-[11px] font-mono px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
+              Seguimiento prioritario
             </span>
-            <span className="text-xs text-zinc-400">posiciones</span>
           </div>
-          <span className="inline-block mt-1.5 text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            Alta afinidad ATS
-          </span>
-        </div>
 
-        <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-4">
-          <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
-            <span>Mis Postulaciones</span>
-            <Clock className="w-3.5 h-3.5 text-zinc-500" />
+          <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-4">
+            <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+              <span>Match Promedio</span>
+              <TrendingUp className="w-3.5 h-3.5 text-zinc-500" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono text-zinc-50">
+                {avgAppliedMatch}%
+              </span>
+            </div>
+            <div className="mt-2.5 h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-emerald-400"
+                style={{ width: `${Math.min(100, Number(avgAppliedMatch))}%` }}
+              />
+            </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-zinc-50">
-              {appliedOrInterviewCount}
-            </span>
-            <span className="text-xs text-zinc-400">en seguimiento</span>
-          </div>
-          <p className="text-xs text-zinc-500 mt-1.5 font-mono">
-            • Postuladas y en entrevista
-          </p>
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-4">
+            <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+              <span>Vacantes Activas</span>
+              <Layers className="w-3.5 h-3.5 text-zinc-500" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono text-zinc-50">
+                {nonDiscardedJobs.length}
+              </span>
+              <span className="text-xs font-mono text-emerald-400">
+                SQLite dedup
+              </span>
+            </div>
+            <p className="text-xs text-zinc-500 mt-1.5">
+              Ingesta multi-fuente sin duplicados
+            </p>
+          </div>
+
+          <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-4">
+            <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+              <span>Match Promedio</span>
+              <TrendingUp className="w-3.5 h-3.5 text-zinc-500" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono text-zinc-50">
+                {avgMatch}%
+              </span>
+            </div>
+            <div className="mt-2.5 h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-emerald-400"
+                style={{ width: `${Math.min(100, Number(avgMatch))}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-4">
+            <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+              <span>Match &gt; 80%</span>
+              <CheckCircle2 className="w-3.5 h-3.5 text-zinc-500" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono text-zinc-50">
+                {highAffinityCount}
+              </span>
+              <span className="text-xs text-zinc-400">posiciones</span>
+            </div>
+            <span className="inline-block mt-1.5 text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              Alta afinidad ATS
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={onGoToPostulaciones}
+            className="text-left bg-[#111114] border border-zinc-800/80 hover:border-emerald-500/40 rounded-xl p-4 transition cursor-pointer"
+          >
+            <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+              <span>Mis Postulaciones</span>
+              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono text-zinc-50">
+                {appliedOrInterviewCount}
+              </span>
+              <span className="text-xs text-zinc-400">en seguimiento</span>
+            </div>
+            <p className="text-xs text-emerald-400/90 mt-1.5 font-mono">
+              Ver apartado Postulaciones →
+            </p>
+          </button>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-3 flex flex-wrap items-center gap-2.5">
@@ -437,12 +557,22 @@ export default function VacantesView({
           onChange={(e) => setStatusFilter(e.target.value)}
           className="bg-[#09090B] border border-zinc-800 rounded-lg px-2.5 py-2 text-xs text-zinc-300 focus:outline-none focus:border-emerald-500/50"
         >
-          <option value="active">Estado: Activas</option>
-          <option value="pending">Por revisar</option>
-          <option value="applied">Postuladas</option>
-          <option value="interview">En entrevista</option>
-          <option value="discarded">Descartadas</option>
-          <option value="all">Ver todas</option>
+          {isPostulacionesMode ? (
+            <>
+              <option value="applied_all">Todas mis postulaciones</option>
+              <option value="applied">Solo Postuladas</option>
+              <option value="interview">En entrevista</option>
+            </>
+          ) : (
+            <>
+              <option value="active">Estado: Activas</option>
+              <option value="pending">Por revisar</option>
+              <option value="applied">Postuladas</option>
+              <option value="interview">En entrevista</option>
+              <option value="discarded">Descartadas</option>
+              <option value="all">Ver todas</option>
+            </>
+          )}
         </select>
 
         {/* Location Filter */}

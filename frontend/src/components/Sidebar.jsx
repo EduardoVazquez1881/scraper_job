@@ -4,16 +4,25 @@ import {
   FileText,
   SlidersHorizontal,
   Sparkles,
+  Bell,
+  Send,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
   { id: 'vacantes', label: 'Vacantes & Match', icon: Briefcase },
+  { id: 'postulaciones', label: 'Postulaciones', icon: Send },
   { id: 'pipeline', label: 'Ejecutar Pipeline', icon: Play },
+  { id: 'automatizaciones', label: 'Automatizaciones', icon: Bell },
   { id: 'perfil', label: 'Mi Perfil & CV', icon: FileText },
   { id: 'config', label: 'Búsqueda & Config', icon: SlidersHorizontal },
 ];
 
-export default function Sidebar({ activeTab, onSelectTab, apiConnected }) {
+export default function Sidebar({
+  activeTab,
+  onSelectTab,
+  apiConnected,
+  appliedCount = 0,
+}) {
   return (
     <aside className="w-[240px] shrink-0 bg-[#0B0B0E] border-r border-zinc-800/80 flex flex-col justify-between h-screen sticky top-0 select-none">
       <div>
@@ -27,7 +36,7 @@ export default function Sidebar({ activeTab, onSelectTab, apiConnected }) {
               JobHunter AI
             </span>
             <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/90 text-zinc-400 border border-zinc-700/60">
-              v2.4
+              v2.5
             </span>
           </div>
         </div>
@@ -58,18 +67,25 @@ export default function Sidebar({ activeTab, onSelectTab, apiConnected }) {
               <button
                 key={item.id}
                 onClick={() => onSelectTab(item.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all cursor-pointer ${
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-[13px] font-medium transition-all cursor-pointer ${
                   isActive
                     ? 'bg-zinc-800/90 text-zinc-100 border border-zinc-700/70 shadow-sm'
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/70 border border-transparent'
                 }`}
               >
-                <Icon
-                  className={`w-4 h-4 ${
-                    isActive ? 'text-emerald-400' : 'text-zinc-500'
-                  }`}
-                />
-                <span>{item.label}</span>
+                <span className="flex items-center gap-2.5">
+                  <Icon
+                    className={`w-4 h-4 ${
+                      isActive ? 'text-emerald-400' : 'text-zinc-500'
+                    }`}
+                  />
+                  <span>{item.label}</span>
+                </span>
+                {item.id === 'postulaciones' && appliedCount > 0 && (
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+                    {appliedCount}
+                  </span>
+                )}
               </button>
             );
           })}

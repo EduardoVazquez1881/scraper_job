@@ -5,6 +5,7 @@ import VacantesView from './components/VacantesView';
 import SearchConfigView from './components/SearchConfigView';
 import PipelineView from './components/PipelineView';
 import ProfileCvView from './components/ProfileCvView';
+import AutomationsView from './components/AutomationsView';
 import {
   INITIAL_CONFIG,
   INITIAL_CV,
@@ -366,12 +367,18 @@ export default function App() {
     }
   };
 
+  const appliedCount = jobs.filter((j) => {
+    const st = j.status || (j.applied ? 'applied' : 'pending');
+    return st === 'applied' || st === 'interview';
+  }).length;
+
   return (
     <div className="min-h-screen bg-[#09090B] text-[#FAFAFA] flex">
       <Sidebar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         apiConnected={apiConnected}
+        appliedCount={appliedCount}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -384,6 +391,10 @@ export default function App() {
             <span className="font-mono text-zinc-500">
               {activeTab === 'vacantes'
                 ? 'vacantes-match'
+                : activeTab === 'postulaciones'
+                ? 'mis-postulaciones'
+                : activeTab === 'automatizaciones'
+                ? 'automatizaciones-alertas'
                 : activeTab === 'config'
                 ? 'busqueda-config'
                 : activeTab === 'pipeline'
@@ -409,8 +420,9 @@ export default function App() {
 
         {/* Main Content */}
         <main className="flex-1 p-6 max-w-[1440px] w-full mx-auto">
-          {activeTab === 'vacantes' && (
+          {(activeTab === 'vacantes' || activeTab === 'postulaciones') && (
             <VacantesView
+              mode={activeTab}
               jobs={jobs}
               keywords={config.keywords}
               searchQuery={searchQuery}
@@ -419,6 +431,8 @@ export default function App() {
               onUpdateJobCrm={handleUpdateJobCrm}
               onRunPipeline={() => handleTriggerPhase('all')}
               onOpenSearchConfig={() => setActiveTab('config')}
+              onGoToVacantes={() => setActiveTab('vacantes')}
+              onGoToPostulaciones={() => setActiveTab('postulaciones')}
               onOptimizeJob={handleOptimizeJob}
               optimizingJobId={optimizingJobId}
               optimizeError={optimizeError}
@@ -427,6 +441,16 @@ export default function App() {
               outreachError={outreachError}
               apiConnected={apiConnected}
               searchInputRef={searchInputRef}
+            />
+          )}
+
+          {activeTab === 'automatizaciones' && (
+            <AutomationsView
+              config={config}
+              setConfig={setConfig}
+              onSaveConfig={handleSaveConfig}
+              savedNotice={savedNotice}
+              apiConnected={apiConnected}
             />
           )}
 
