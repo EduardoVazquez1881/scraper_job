@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Download,
   Play,
@@ -70,6 +70,11 @@ export default function VacantesView({
   const [sortBy, setSortBy] = useState('match');
   const [selectedJobId, setSelectedJobId] = useState(jobs[0]?.id ?? null);
   const [copied, setCopied] = useState(false);
+  const detailScrollRef = useRef(null);
+
+  useEffect(() => {
+    detailScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [selectedJobId]);
 
   const filteredJobs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -354,11 +359,11 @@ export default function VacantesView({
         </select>
       </div>
 
-      {/* Master-Detail Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+      {/* Master-Detail Grid (Independent Scroll Panes on Desktop) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:h-[calc(100vh-310px)] lg:min-h-[480px]">
         {/* Left List (40% -> 5 cols) */}
-        <div className="lg:col-span-5 space-y-2.5">
-          <div className="flex items-center justify-between px-1 text-[11px] font-mono text-zinc-500 uppercase">
+        <div className="lg:col-span-5 flex flex-col min-h-0">
+          <div className="flex items-center justify-between px-1 pb-2 text-[11px] font-mono text-zinc-500 uppercase shrink-0">
             <span>
               Mostrando {filteredJobs.length} de {jobs.length} resultados
             </span>
@@ -366,6 +371,8 @@ export default function VacantesView({
               <span className="text-emerald-400">Filtro: &gt;{minScore}% activo</span>
             )}
           </div>
+
+          <div className="space-y-2.5 lg:flex-1 lg:overflow-y-auto lg:pr-1.5">
 
           {filteredJobs.length === 0 ? (
             <div className="bg-[#111114] border border-zinc-800/80 rounded-xl p-8 text-center">
@@ -444,10 +451,14 @@ export default function VacantesView({
               );
             })
           )}
+          </div>
         </div>
 
         {/* Right Detail Panel (60% -> 7 cols) */}
-        <div className="lg:col-span-7 space-y-4">
+        <div
+          ref={detailScrollRef}
+          className="lg:col-span-7 space-y-4 lg:h-full lg:overflow-y-auto lg:pr-1.5"
+        >
           {activeJob ? (
             <>
               {/* Header Card */}

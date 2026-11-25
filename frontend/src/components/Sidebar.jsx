@@ -4,7 +4,6 @@ import {
   FileText,
   SlidersHorizontal,
   Sparkles,
-  Lock,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -75,38 +74,6 @@ export default function Sidebar({ activeTab, onSelectTab, apiConnected }) {
             );
           })}
         </nav>
-      </div>
-
-      {/* Bottom Engine + Profile */}
-      <div className="p-3 space-y-2.5 border-t border-zinc-800/70">
-        <div className="px-3 py-2.5 rounded-lg bg-[#111114] border border-zinc-800/80">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium text-zinc-300">
-              FastAPI + Gemini 2.5
-            </span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          </div>
-          <p className="text-[11px] text-zinc-500 mt-0.5 font-mono">
-            Playwright engine ready
-          </p>
-        </div>
-
-        <div className="flex items-center justify-between px-2 py-1">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[11px] font-semibold text-zinc-200">
-              EV
-            </div>
-            <div>
-              <p className="text-xs font-medium text-zinc-200 leading-tight">
-                Eduardo Vázquez
-              </p>
-              <p className="text-[11px] text-zinc-500 font-mono leading-tight">
-                dev@local
-              </p>
-            </div>
-          </div>
-          <Lock className="w-3.5 h-3.5 text-zinc-600" />
-        </div>
       </div>
     </aside>
   );
