@@ -10,7 +10,7 @@ export const INITIAL_CONFIG = {
   max_per_keyword: 15,
   headless: true,
   exclude_english: true,
-  work_mode: 'local',
+  work_mode: 'both',
   sources: ['linkedin', 'computrabajo', 'getonboard'],
   ai_provider: 'gemini',
   ai_model: 'gemini-2.5-flash',

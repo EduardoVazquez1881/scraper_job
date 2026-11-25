@@ -59,8 +59,8 @@ def _is_eligible_for_location(attrs: dict, public_url: str, target_location: str
             return False
         return is_fully_remote or (remote and in_mexico)
 
-    # work_mode == "both" (Tijuana Local + México Remoto)
-    if in_tijuana:
+    # work_mode == "both" (Local + Remoto)
+    if in_target_city or in_tijuana:
         return True
     if has_foreign_city and modality != "fully_remote":
         return False

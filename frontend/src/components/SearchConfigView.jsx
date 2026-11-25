@@ -333,41 +333,49 @@ export default function SearchConfigView({
             </div>
           </div>
 
-          {/* Modalidad (Local / Remoto) + Comboselect de Ubicación */}
+          {/* Modalidad (Local / Remoto / Local + Remoto) + Comboselect de Ubicación */}
           <div>
             <label className="block text-xs font-medium text-zinc-300 mb-1.5">
               Modalidad de Búsqueda
             </label>
-            <div className="grid grid-cols-2 bg-[#09090B] border border-zinc-800 rounded-lg p-1 text-xs mb-3">
+            <div className="grid grid-cols-3 bg-[#09090B] border border-zinc-800 rounded-lg p-1 text-xs mb-3">
               {[
                 {
                   id: 'local',
                   label: 'Local',
-                  matches: (m) => m === 'local' || m === 'tijuana_local' || m === 'both',
+                  matches: (m) => m === 'local' || m === 'tijuana_local',
                 },
                 {
                   id: 'mexico_remote',
                   label: 'Remoto',
                   matches: (m) => m === 'mexico_remote' || m === 'remote',
                 },
+                {
+                  id: 'both',
+                  label: 'Local + Remoto',
+                  matches: (m) => m === 'both',
+                },
               ].map((mode) => {
-                const active = mode.matches(config.work_mode || 'local');
+                const active = mode.matches(config.work_mode || 'both');
                 return (
                   <button
                     key={mode.id}
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
+                      const shouldPickCity =
+                        mode.id !== 'mexico_remote' && config.location === 'Mexico';
                       setConfig({
                         ...config,
                         work_mode: mode.id,
                         location:
                           mode.id === 'mexico_remote'
                             ? 'Mexico'
-                            : !config.location || config.location === 'Mexico'
-                            ? 'Tijuana, Baja California, Mexico'
+                            : shouldPickCity
+                            ? ''
                             : config.location,
-                      })
-                    }
+                      });
+                      if (shouldPickCity) setLocationOpen(true);
+                    }}
                     className={`py-1.5 px-2 rounded-md font-medium transition cursor-pointer ${
                       active
                         ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
