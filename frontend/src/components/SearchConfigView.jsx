@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Save,
   Search,
@@ -11,7 +11,39 @@ import {
   AlertCircle,
   Sparkles,
   Globe,
+  ChevronDown,
 } from 'lucide-react';
+
+const LOCATION_SUGGESTIONS = [
+  { label: 'Tijuana, Baja California, Mexico', aliases: ['tj', 'tijuana', 'bc'] },
+  { label: 'Mexicali, Baja California, Mexico', aliases: ['mxl', 'mexicali', 'bc'] },
+  { label: 'Ensenada, Baja California, Mexico', aliases: ['ensenada', 'bc'] },
+  { label: 'Ciudad de México, Mexico', aliases: ['cdmx', 'df', 'ciudad de mexico'] },
+  { label: 'Guadalajara, Jalisco, Mexico', aliases: ['gdl', 'guadalajara', 'jalisco'] },
+  { label: 'Monterrey, Nuevo León, Mexico', aliases: ['mty', 'monterrey', 'nuevo leon'] },
+  { label: 'Querétaro, Querétaro, Mexico', aliases: ['qro', 'queretaro'] },
+  { label: 'Puebla, Puebla, Mexico', aliases: ['puebla'] },
+  { label: 'Mérida, Yucatán, Mexico', aliases: ['merida', 'yucatan'] },
+  { label: 'León, Guanajuato, Mexico', aliases: ['leon', 'guanajuato'] },
+  { label: 'Hermosillo, Sonora, Mexico', aliases: ['hermosillo', 'sonora'] },
+  { label: 'Chihuahua, Chihuahua, Mexico', aliases: ['chihuahua'] },
+  { label: 'Saltillo, Coahuila, Mexico', aliases: ['saltillo', 'coahuila'] },
+  { label: 'San Luis Potosí, SLP, Mexico', aliases: ['slp', 'san luis potosi'] },
+  { label: 'Cancún, Quintana Roo, Mexico', aliases: ['cancun', 'quintana roo'] },
+  { label: 'Aguascalientes, Aguascalientes, Mexico', aliases: ['ags', 'aguascalientes'] },
+  { label: 'Toluca, Estado de México, Mexico', aliases: ['toluca', 'edomex'] },
+  { label: 'Veracruz, Veracruz, Mexico', aliases: ['veracruz'] },
+  { label: 'Morelia, Michoacán, Mexico', aliases: ['morelia', 'michoacan'] },
+  { label: 'Culiacán, Sinaloa, Mexico', aliases: ['culiacan', 'sinaloa'] },
+  { label: 'Mexico', aliases: ['mexico', 'remoto', 'remote', 'todo mexico'] },
+];
+
+function normalizeText(str) {
+  return (str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
 
 const SOURCE_OPTIONS = [
   { id: 'linkedin', label: 'LinkedIn', hint: 'Playwright' },
@@ -31,6 +63,59 @@ export default function SearchConfigView({
   const [newKeyword, setNewKeyword] = useState('');
   const [suggestingKeywords, setSuggestingKeywords] = useState(false);
   const [keywordSuggestInfo, setKeywordSuggestInfo] = useState(null);
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [highlightedIdx, setHighlightedIdx] = useState(0);
+  const locationBoxRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (locationBoxRef.current && !locationBoxRef.current.contains(e.target)) {
+        setLocationOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredLocations = useMemo(() => {
+    const q = normalizeText(config.location).trim();
+    if (!q) return LOCATION_SUGGESTIONS;
+    return LOCATION_SUGGESTIONS.filter((item) => {
+      const normLabel = normalizeText(item.label);
+      if (normLabel.includes(q)) return true;
+      return item.aliases.some((alias) => alias.includes(q));
+    });
+  }, [config.location]);
+
+  const handleSelectLocation = (locLabel) => {
+    setConfig({ ...config, location: locLabel });
+    setLocationOpen(false);
+    setHighlightedIdx(0);
+  };
+
+  const handleLocationKeyDown = (e) => {
+    if (!locationOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      setLocationOpen(true);
+      return;
+    }
+    if (!locationOpen || filteredLocations.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIdx((prev) => (prev + 1) % filteredLocations.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIdx((prev) =>
+        prev === 0 ? filteredLocations.length - 1 : prev - 1
+      );
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const picked = filteredLocations[highlightedIdx];
+      if (picked) handleSelectLocation(picked.label);
+    } else if (e.key === 'Escape') {
+      setLocationOpen(false);
+    }
+  };
 
   const activeProviderKey = config.ai_provider === 'deepseek' ? 'deepseek' : 'gemini';
   const currentApiKey = config.api_keys?.[activeProviderKey] ?? '';
@@ -248,30 +333,25 @@ export default function SearchConfigView({
             </div>
           </div>
 
-          {/* Modalidad / Zona preset */}
+          {/* Modalidad (Local / Remoto) + Comboselect de Ubicación */}
           <div>
             <label className="block text-xs font-medium text-zinc-300 mb-1.5">
               Modalidad de Búsqueda
             </label>
-            <div className="grid grid-cols-3 bg-[#09090B] border border-zinc-800 rounded-lg p-1 text-xs mb-3">
+            <div className="grid grid-cols-2 bg-[#09090B] border border-zinc-800 rounded-lg p-1 text-xs mb-3">
               {[
                 {
-                  id: 'tijuana_local',
-                  label: 'Local Tijuana',
-                  loc: 'Tijuana, Baja California, Mexico',
+                  id: 'local',
+                  label: 'Local',
+                  matches: (m) => m === 'local' || m === 'tijuana_local' || m === 'both',
                 },
                 {
                   id: 'mexico_remote',
-                  label: 'México Remoto',
-                  loc: 'Mexico',
-                },
-                {
-                  id: 'both',
-                  label: 'Tijuana + Remoto',
-                  loc: 'Tijuana, Baja California, Mexico',
+                  label: 'Remoto',
+                  matches: (m) => m === 'mexico_remote' || m === 'remote',
                 },
               ].map((mode) => {
-                const active = (config.work_mode || 'both') === mode.id;
+                const active = mode.matches(config.work_mode || 'local');
                 return (
                   <button
                     key={mode.id}
@@ -280,7 +360,12 @@ export default function SearchConfigView({
                       setConfig({
                         ...config,
                         work_mode: mode.id,
-                        location: mode.loc,
+                        location:
+                          mode.id === 'mexico_remote'
+                            ? 'Mexico'
+                            : !config.location || config.location === 'Mexico'
+                            ? 'Tijuana, Baja California, Mexico'
+                            : config.location,
                       })
                     }
                     className={`py-1.5 px-2 rounded-md font-medium transition cursor-pointer ${
@@ -296,18 +381,91 @@ export default function SearchConfigView({
             </div>
 
             <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-              Ubicación exacta
+              Ubicación (escribe para autocompletar)
             </label>
-            <div className="relative">
-              <MapPin className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <div className="relative" ref={locationBoxRef}>
+              <MapPin className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={config.location}
-                onChange={(e) =>
-                  setConfig({ ...config, location: e.target.value })
-                }
-                className="w-full bg-[#09090B] border border-zinc-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500/50"
+                onFocus={() => setLocationOpen(true)}
+                onChange={(e) => {
+                  setConfig({ ...config, location: e.target.value });
+                  setLocationOpen(true);
+                  setHighlightedIdx(0);
+                }}
+                onKeyDown={handleLocationKeyDown}
+                placeholder="Ej. Tijuana, Guadalajara, Monterrey, CDMX..."
+                className="w-full bg-[#09090B] border border-zinc-800 rounded-lg pl-9 pr-14 py-2.5 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50"
               />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                {config.location && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfig({ ...config, location: '' });
+                      setLocationOpen(true);
+                    }}
+                    className="p-1 text-zinc-500 hover:text-zinc-300 cursor-pointer"
+                    title="Limpiar ubicación"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setLocationOpen((prev) => !prev)}
+                  className="p-1 text-zinc-500 hover:text-zinc-300 cursor-pointer"
+                  title="Mostrar ubicaciones"
+                >
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform ${
+                      locationOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {locationOpen && (
+                <div className="absolute z-30 mt-1.5 w-full max-h-56 overflow-y-auto rounded-xl bg-[#111114] border border-zinc-700/80 shadow-2xl py-1">
+                  {filteredLocations.length > 0 ? (
+                    filteredLocations.map((item, idx) => {
+                      const isHighlighted = idx === highlightedIdx;
+                      const isSelected = config.location === item.label;
+                      return (
+                        <button
+                          key={item.label}
+                          type="button"
+                          onMouseEnter={() => setHighlightedIdx(idx)}
+                          onClick={() => handleSelectLocation(item.label)}
+                          className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition cursor-pointer ${
+                            isHighlighted
+                              ? 'bg-emerald-500/15 text-emerald-300'
+                              : isSelected
+                              ? 'text-emerald-400 bg-zinc-900/60'
+                              : 'text-zinc-300 hover:bg-zinc-900/80'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2 truncate">
+                            <MapPin className="w-3.5 h-3.5 shrink-0 opacity-60" />
+                            <span className="truncate">{item.label}</span>
+                          </span>
+                          {isSelected && (
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                          )}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="px-3 py-2.5 text-xs text-zinc-400">
+                      Usar ubicación personalizada:{' '}
+                      <span className="text-emerald-400 font-medium">
+                        &ldquo;{config.location}&rdquo;
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

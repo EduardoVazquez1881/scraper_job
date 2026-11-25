@@ -140,12 +140,12 @@ export default function VacantesView({
           }
         }
         if (minScore > 0 && job.matchScore < minScore) return false;
-        if (locationFilter === 'tijuana') {
+        if (locationFilter === 'local') {
           const loc = (job.location || '').toLowerCase();
-          if (!loc.includes('tijuana') && !loc.includes('baja california')) {
+          if (loc.includes('remoto') || loc.includes('remote')) {
             return false;
           }
-        } else if (locationFilter === 'mexico_remote') {
+        } else if (locationFilter === 'remote') {
           const loc = (job.location || '').toLowerCase();
           if (
             !loc.includes('remoto') &&
@@ -582,8 +582,8 @@ export default function VacantesView({
           className="bg-[#09090B] border border-zinc-800 rounded-lg px-2.5 py-2 text-xs text-zinc-300 focus:outline-none focus:border-emerald-500/50"
         >
           <option value="all">Ubicación: Todas</option>
-          <option value="tijuana">Local Tijuana</option>
-          <option value="mexico_remote">México Remoto</option>
+          <option value="local">Local</option>
+          <option value="remote">Remoto</option>
         </select>
 
         {/* Keyword Dropdown */}

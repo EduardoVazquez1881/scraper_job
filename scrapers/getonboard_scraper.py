@@ -44,8 +44,13 @@ def _is_eligible_for_location(attrs: dict, public_url: str, target_location: str
     has_foreign_city = any(f"-{tok}" in url_lower for tok in FOREIGN_CITY_TOKENS)
     is_fully_remote = modality == "fully_remote" or (remote and modality not in ("hybrid", "remote_local", "no_remote") and not has_foreign_city)
 
-    if work_mode == "tijuana_local":
-        return in_tijuana
+    city_part = (target_location or "").split(",")[0].strip().lower()
+    in_target_city = bool(city_part) and (
+        city_part in url_lower or city_part in str(attrs.get("city") or "").lower()
+    )
+
+    if work_mode in ("local", "tijuana_local"):
+        return in_target_city or in_tijuana
 
     if work_mode == "mexico_remote":
         if has_foreign_city and not is_fully_remote:
