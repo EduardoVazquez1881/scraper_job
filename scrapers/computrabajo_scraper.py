@@ -4,7 +4,7 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-from scrapers.utils import slugify
+from scrapers.utils import matches_search_keyword, slugify
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -57,6 +57,13 @@ def scrape_computrabajo(
                 if "verify you are human" in body_text or "cloudflare" in body_text or "captcha" in body_text:
                     print("[WARN] [Computrabajo MX] Se detectó verificación anti-bot; omitiendo fuente.", flush=True)
                     break
+                if (
+                    "no hemos encontrado ofertas" in body_text
+                    or "no se encontraron ofertas" in body_text
+                    or "te mostramos otras ofertas" in body_text
+                ):
+                    print(f"[WARN] [Computrabajo MX] Sin coincidencias exactas para '{kw}' (solo sugerencias genéricas). Omitiendo.", flush=True)
+                    continue
 
                 cards = page.locator("article.box_offer").all()
                 if not cards:
@@ -64,6 +71,7 @@ def scrape_computrabajo(
                     continue
 
                 added = 0
+                skipped_irrelevant = 0
                 for card in cards:
                     if added >= max_per_keyword:
                         break
@@ -80,7 +88,6 @@ def scrape_computrabajo(
                         )
                         if full_link in seen_links:
                             continue
-                        seen_links.add(full_link)
 
                         company = "Empresa confidencial"
                         try:
@@ -110,25 +117,36 @@ def scrape_computrabajo(
                         except Exception:
                             pass
 
-                        jobs.append(
-                            {
-                                "title": title,
-                                "company": company,
-                                "location": loc_text,
-                                "salary": salary,
-                                "link": full_link,
-                                "keyword": kw,
-                                "source": "Computrabajo",
-                                "description": snippet or f"{title} en {company} ({loc_text}).",
-                                "postedAt": "Reciente",
-                                "scraped_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                "applied": False,
-                            }
-                        )
+                        candidate = {
+                            "title": title,
+                            "company": company,
+                            "location": loc_text,
+                            "salary": salary,
+                            "link": full_link,
+                            "keyword": kw,
+                            "source": "Computrabajo",
+                            "description": snippet or f"{title} en {company} ({loc_text}).",
+                            "postedAt": "Reciente",
+                            "scraped_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            "applied": False,
+                        }
+
+                        if not matches_search_keyword(candidate, kw):
+                            skipped_irrelevant += 1
+                            continue
+
+                        seen_links.add(full_link)
+                        jobs.append(candidate)
                         added += 1
                         print(f"  [OK] [Computrabajo] {title[:55]} @ {company}", flush=True)
                     except Exception:
                         continue
+
+                if skipped_irrelevant:
+                    print(
+                        f"  [INFO] [Computrabajo MX] {skipped_irrelevant} vacantes de relleno descartadas por no coincidir con '{kw}'.",
+                        flush=True,
+                    )
 
             browser.close()
     except Exception as exc:

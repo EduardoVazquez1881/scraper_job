@@ -4,7 +4,7 @@ from linkedin_scraper import scrape_linkedin
 from scrapers.computrabajo_scraper import scrape_computrabajo
 from scrapers.getonboard_scraper import scrape_getonboard
 from scrapers.indeed_scraper import scrape_indeed
-from scrapers.utils import DATA_DIR, ROOT_DIR, load_config, requires_english
+from scrapers.utils import DATA_DIR, ROOT_DIR, load_config, matches_search_keyword, requires_english
 
 
 def run_multi_scrape():
@@ -58,10 +58,11 @@ def run_multi_scrape():
         # linkedin_scraper ya aplica filtro de idioma internamente
         combined.extend(scrape_linkedin())
 
-    # Deduplicar por enlace y aplicar filtro de idioma unificado
+    # Deduplicar por enlace y aplicar filtros de idioma y relevancia por keyword
     deduped = []
     seen_links = set()
     skipped_en = 0
+    skipped_irrelevant = 0
 
     for job in combined:
         link = (job.get("link") or "").strip()
@@ -69,6 +70,10 @@ def run_multi_scrape():
             continue
         if exclude_english and requires_english(job):
             skipped_en += 1
+            continue
+        kw = (job.get("keyword") or "").strip()
+        if kw and not matches_search_keyword(job, kw):
+            skipped_irrelevant += 1
             continue
         if link:
             seen_links.add(link)
@@ -101,7 +106,7 @@ def run_multi_scrape():
     print("=" * 60, flush=True)
     print(
         f"[OK] FASE 01 COMPLETADA: {len(deduped)} vacantes procesadas en esta corrida "
-        f"({skipped_en} descartadas por inglés).",
+        f"({skipped_en} descartadas por inglés, {skipped_irrelevant} por irrelevantes).",
         flush=True,
     )
     print("=" * 60, flush=True)
